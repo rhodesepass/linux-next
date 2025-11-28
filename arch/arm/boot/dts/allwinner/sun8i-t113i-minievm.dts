@@ -1,0 +1,303 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+// Copyright (C) 2022 Arm Ltd.
+
+#include <dt-bindings/interrupt-controller/irq.h>
+
+/dts-v1/;
+
+#include "sun8i-t113s.dtsi"
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/leds/common.h>
+
+/ {
+	model = "T113i MiniEVM";
+	compatible = "allwinner,sun8i-t113s";
+
+	aliases {
+		serial0 = &uart0;
+		ethernet0 = &emac;
+	};
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+	};
+
+    leds {
+        compatible = "gpio-leds";
+
+        sys_led {
+            label = "green:status";
+            gpios = <&pio 6 11 GPIO_ACTIVE_HIGH>; /* PG11 */
+            default-state = "on";
+        };
+    };
+
+	reg_vcc5v: regulator-5v {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc-5v";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		regulator-always-on;
+	};
+
+	reg_3v3: regulator-3v3 {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc-3v3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		vin-supply = <&reg_vcc5v>;
+	};
+
+	reg_vcc_core: regulator-core {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc-core";
+		regulator-min-microvolt = <880000>;
+		regulator-max-microvolt = <880000>;
+		vin-supply = <&reg_vcc5v>;
+	};
+
+	reg_avdd2v8: regulator-avdd {
+		compatible = "regulator-fixed";
+		regulator-name = "avdd2v8";
+		regulator-min-microvolt = <2800000>;
+		regulator-max-microvolt = <2800000>;
+		vin-supply = <&reg_3v3>;
+	};
+
+    reg_usb0_vbus: regulator-usb0-vbus {
+        compatible = "regulator-fixed";
+        regulator-name = "usb0-vbus";
+        regulator-min-microvolt = <5000000>;
+        regulator-max-microvolt = <5000000>;
+        vin-supply = <&reg_vcc5v>;
+        regulator-always-on;
+    };
+
+    reg_usb1_vbus: regulator-usb1-vbus {
+        compatible = "regulator-fixed";
+        regulator-name = "usb1-vbus";
+        regulator-min-microvolt = <5000000>;
+        regulator-max-microvolt = <5000000>;
+        vin-supply = <&reg_vcc5v>;
+        gpio = <&pio 1 12 GPIO_ACTIVE_HIGH>;  /* PB12 / USB_DRVVBUS */
+        enable-active-high;
+    };
+
+    reg_1v8_hdmi: regulator-1v8-hdmi {
+        compatible = "regulator-fixed";
+        regulator-name = "vdd-1v8-hdmi";
+        regulator-min-microvolt = <1800000>;
+        regulator-max-microvolt = <1800000>;
+        vin-supply = <&reg_3v3>;
+        regulator-always-on;
+    };
+
+    hdmi_con: hdmi-connector {
+        compatible = "hdmi-connector";
+        type = "a";
+
+		// ddc-i2c-bus = <&i2c0>; // 这个引脚也没定义在公共区域!
+
+        port {
+            hdmi_con_in: endpoint {
+                remote-endpoint = <&lt8912_out>;
+            };
+        };
+    };
+};
+
+&pio {
+	vcc-pb-supply = <&reg_3v3>;
+	vcc-pd-supply = <&reg_3v3>;
+	vcc-pe-supply = <&reg_avdd2v8>;
+	vcc-pf-supply = <&reg_3v3>;
+	vcc-pg-supply = <&reg_3v3>;
+
+	uart0_pg_pins: uart0-pg-pins {
+		pins = "PG17", "PG18";
+		function = "uart0";
+	};
+
+    rgmii_pg_pins: rgmii-pg-pins {
+        pins = "PG0",  "PG1",  "PG2",   /* RXCTL, RXD0, RXD1 */
+               "PG3",  "PG4",  "PG5",   /* TXCK, TXD0, TXD1 */
+               "PG6",  "PG7",           /* TXD2, TXD3 */
+               "PG8",  "PG9",  "PG10",  /* RXD2, RXD3, RXCK */
+               "PG12",                  /* TXEN / TXCTRL */
+               "PG14", "PG15";          /* MDC, MDIO */
+        function = "emac";
+    };
+
+    i2c2_pe_pins: i2c2-pe-pins {
+        pins = "PE12", "PE13";
+        function = "i2c2";
+        bias-pull-up;
+    };
+};
+
+&de {
+    status = "okay";
+};
+
+&tcon_top {
+    status = "okay";
+};
+
+&mixer0 {
+    status = "okay";
+};
+
+&tcon_lcd0 {
+    status = "okay";
+};
+
+/* We only use LCD0+DSI; disable TV TCON1 to avoid unused component errors */
+&tcon_tv0 {
+    status = "disabled";
+};
+
+&dsi {
+    #address-cells = <1>;
+    #size-cells = <0>;
+    pinctrl-names = "default";
+    pinctrl-0 = <&dsi_4lane_pins>;
+    status = "okay";
+
+    vcc-dsi-supply = <&reg_avdd2v8>; 
+
+    port {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        /* keep existing endpoint to tcon_lcd0 (from base dtsi) and add DSI -> LT8912 */
+        dsi_out: endpoint@1 {
+            reg = <1>;
+            remote-endpoint = <&lt8912_in>;
+        };
+    };
+};
+
+&cpu0 {
+	cpu-supply = <&reg_vcc_core>;
+};
+
+&cpu1 {
+	cpu-supply = <&reg_vcc_core>;
+};
+
+&wdt {
+    status = "okay";
+};
+
+&dcxo {
+	clock-frequency = <24000000>;
+};
+
+&ehci1 {
+	status = "okay";
+};
+
+&mmc0 {
+	pinctrl-0 = <&mmc0_pins>;
+	pinctrl-names = "default";
+	vmmc-supply = <&reg_3v3>;
+	cd-gpios = <&pio 5 6 GPIO_ACTIVE_LOW>;
+	disable-wp;
+	bus-width = <4>;
+	status = "okay";
+};
+
+&ohci1 {
+	status = "okay";
+};
+
+&emac {
+    pinctrl-names = "default";
+    pinctrl-0 = <&rgmii_pg_pins>;
+
+    phy-mode = "rgmii";
+    phy-handle = <&ext_rgmii_phy>;
+    phy-supply = <&reg_3v3>;
+
+    allwinner,tx-delay-ps = <400>;
+    allwinner,rx-delay-ps = <1500>;
+
+    status = "okay";
+};
+
+&mdio {
+    ext_rgmii_phy: ethernet-phy@0 {
+        compatible = "ethernet-phy-id4f51.e91b",
+                     "ethernet-phy-ieee802.3-c22";
+        reg = <0>;
+
+        reset-gpios = <&pio 6 13 GPIO_ACTIVE_LOW>; /* PG13 / ETH_RSTn */
+        reset-assert-us = <15000>;
+        reset-deassert-us = <80000>;
+
+	    // rx-internal-delay-ps = <0>;
+        // tx-internal-delay-ps = <0>;
+    };
+};
+
+
+&uart0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart0_pg_pins>;
+	status = "okay";
+};
+
+/* The USB-C socket has its CC pins pulled to GND, so is hardwired as a UFP. */
+&usb_otg {
+	dr_mode = "peripheral";
+	status = "okay";
+};
+
+&usbphy {
+    usb0_vbus-supply = <&reg_usb0_vbus>;
+    usb1_vbus-supply = <&reg_usb1_vbus>;
+    status = "okay";
+};
+
+&i2c2 {
+    pinctrl-names = "default";
+    pinctrl-0 = <&i2c2_pe_pins>;
+    status = "okay";
+
+    lt8912: hdmi-bridge@48 {
+        compatible = "lontium,lt8912b";
+        reg = <0x48>;
+        reset-gpios = <&pio 4 11 GPIO_ACTIVE_LOW>;
+        allwinner,dsi = <&dsi>;
+
+        vdd-supply          = <&reg_1v8_hdmi>;
+        vcchdmipll-supply   = <&reg_1v8_hdmi>;
+        vcchdmitx-supply    = <&reg_1v8_hdmi>;
+        vcclvdspll-supply   = <&reg_1v8_hdmi>;
+        vcclvdstx-supply    = <&reg_1v8_hdmi>;
+        vccmipirx-supply    = <&reg_1v8_hdmi>;
+        vccsysclk-supply    = <&reg_1v8_hdmi>;
+        lontium,force-mode  = "720p30";
+
+        ports {
+            #address-cells = <1>;
+            #size-cells = <0>;
+
+            port@0 {
+                reg = <0>;
+                lt8912_in: endpoint {
+                    data-lanes = <0 1 2 3>;
+                    remote-endpoint = <&dsi_out>;
+                };
+            };
+
+            port@1 {
+                reg = <1>;
+                lt8912_out: endpoint {
+                    remote-endpoint = <&hdmi_con_in>;
+                };
+            };
+        };
+    };
+};
