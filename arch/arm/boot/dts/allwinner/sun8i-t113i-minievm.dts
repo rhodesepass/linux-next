@@ -7,8 +7,10 @@
 
 #include "sun8i-t113s.dtsi"
 
+#include <dt-bindings/clock/sun20i-d1-ccu.h>
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/leds/common.h>
+#include <dt-bindings/reset/sun20i-d1-ccu.h>
 
 / {
 	model = "T113i MiniEVM";
@@ -21,6 +23,17 @@
 
 	chosen {
 		stdout-path = "serial0:115200n8";
+	};
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		c906_reserved: c906@45000000 {
+			reg = <0x45000000 0x00008000>; /* 32 KB for C906 firmware */
+			no-map;
+		};
 	};
 
     leds {
@@ -127,11 +140,17 @@
                "PG12",                  /* TXEN / TXCTRL */
                "PG14", "PG15";          /* MDC, MDIO */
         function = "emac";
-    };
+	};
 
     i2c2_pe_pins: i2c2-pe-pins {
         pins = "PE12", "PE13";
         function = "i2c2";
+        bias-pull-up;
+    };
+
+    riscv_jtag_pins: riscv-jtag-pe-pins {
+        pins = "PE4", "PE5", "PE6", "PE7";
+        function = "r_jtag";
         bias-pull-up;
     };
 };
@@ -192,6 +211,30 @@
 
 &dcxo {
 	clock-frequency = <24000000>;
+};
+
+&{/soc} {
+    c906: rproc@6010000 {
+        compatible = "allwinner,c906-rproc";
+        reg = <0x06010000 0x1000>;
+        reg-names = "c906-cfg";
+
+        clocks = <&ccu CLK_RISCV>,
+                 <&ccu CLK_MBUS_RISCV>,
+                 <&ccu CLK_BUS_RISCV_CFG>,
+                 <&ccu CLK_RISCV_AXI>,
+                 <&ccu CLK_PLL_PERIPH0_800M>;
+        clock-names = "core", "bus", "cfg", "axi", "pll";
+
+		resets = <&ccu RST_BUS_RISCV_CFG>;
+		reset-names = "cfg";
+
+		memory-region = <&c906_reserved>;
+		/* map FW linked at 0x41000000 into reserved RAM at 0x45000000 */
+		allwinner,memory-mappings = <0x41000000 0x00008000 0x45000000>;
+		firmware-name = "c906-fw.elf";
+		status = "okay";
+	};
 };
 
 &ehci1 {

@@ -378,6 +378,21 @@ config XLNX_R5_REMOTEPROC
 
 	  It's safe to say N if not interested in using RPU r5f cores.
 
+config SUNXI_C906_REMOTEPROC
+	tristate "Allwinner T113/D1 C906 remoteproc support"
+	depends on ARCH_SUNXI || COMPILE_TEST
+	depends on REMOTEPROC
+	select RESET_CONTROLLER
+	select COMMON_CLK
+	help
+	  Say y here to enable minimal remoteproc control of the Xuantie C906
+	  coprocessor present on Allwinner T113/T113s/D1 based SoCs.
+
+	  The driver can boot a firmware image provided via standard
+	  request_firmware() and exposes the usual sysfs control under
+	  /sys/class/remoteproc/. It expects a single MMIO region for the
+	  RISCV_CFG block and optional clocks/resets provided in the device tree.
+
 endif # REMOTEPROC
 
 endmenu
