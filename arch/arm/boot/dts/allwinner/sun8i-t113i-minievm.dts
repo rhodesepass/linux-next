@@ -30,11 +30,23 @@
 		#size-cells = <1>;
 		ranges;
 
-	c906_reserved: c906@41000000 {
-		/* 1 MB shared window visible to both ARM and C906 */
-		reg = <0x41000000 0x00100000>;
-		no-map;
-	};
+        c906_reserved: c906@41000000 {
+            /* 1 MB shared window visible to both ARM and C906 */
+            reg = <0x41000000 0x00100000>;
+            no-map;
+        };
+
+        dsp_sram_reserved: dsp-sram@400000 {
+            /* DSP IRAM/TCM window */
+            reg = <0x00400000 0x00100000>;
+            no-map;
+        };
+
+        dsp_ddr_reserved: dsp-ddr@4fc00000 {
+            /* DSP working buffer in DRAM, keep clear of kernel buddy */
+            reg = <0x4fc00000 0x00200000>;
+            no-map;
+        };
 	};
 
     leds {
@@ -255,6 +267,25 @@
 		firmware-name = "c906-fw.elf";
 		mboxes = <&msgbox 4>;
 		mbox-names = "arm-kick";
+		status = "okay";
+	};
+
+	dsp: rproc@1700000 {
+		compatible = "allwinner,hifi4-rproc";
+		reg = <0x01700000 0x1000>;
+		reg-names = "dsp-cfg";
+
+		clocks = <&ccu CLK_DSP>,
+			 <&ccu CLK_BUS_DSP_CFG>;
+		clock-names = "core", "bus";
+
+		resets = <&ccu RST_DSP>,
+			 <&ccu RST_BUS_DSP_CFG>,
+			 <&ccu RST_BUS_DSP_DBG>;
+		reset-names = "core", "cfg", "dbg";
+
+		memory-region = <&dsp_sram_reserved>, <&dsp_ddr_reserved>;
+		firmware-name = "dsp.elf";
 		status = "okay";
 	};
 };

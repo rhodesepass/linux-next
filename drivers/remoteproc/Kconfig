@@ -393,6 +393,18 @@ config SUNXI_C906_REMOTEPROC
 	  /sys/class/remoteproc/. It expects a single MMIO region for the
 	  RISCV_CFG block and optional clocks/resets provided in the device tree.
 
+config SUNXI_HIFI4_REMOTEPROC
+	tristate "Allwinner T113 HiFi4 DSP remoteproc support"
+	depends on ARCH_SUNXI || COMPILE_TEST
+	depends on REMOTEPROC
+	select RESET_CONTROLLER
+	select COMMON_CLK
+	help
+	  Enable minimal remoteproc control of the Cadence HiFi4 DSP present
+	  on Allwinner T113/T113s devices. The driver can load an ELF firmware
+	  via request_firmware() and release the DSP from reset. IPC/kick
+	  support is intentionally left out for now.
+
 endif # REMOTEPROC
 
 endmenu
