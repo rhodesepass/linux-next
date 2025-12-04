@@ -36,6 +36,12 @@
             no-map;
         };
 
+        dsp_ipc_reserved: dsp-ipc@41100000 {
+            /* Shared IPC window for HiFi4 <-> CPU RPMsg traffic */
+            reg = <0x41100000 0x00100000>;
+            no-map;
+        };
+
         dsp_sram_reserved: dsp-sram@400000 {
             /* DSP IRAM/TCM window */
             reg = <0x00400000 0x00100000>;
@@ -55,7 +61,19 @@
         sys_led {
             label = "green:status";
             gpios = <&pio 6 11 GPIO_ACTIVE_HIGH>; /* PG11 */
-            default-state = "on";
+            linux,default-trigger = "heartbeat";
+        };
+
+        cpu_led0 {
+            label = "green:cpu_led0";
+            gpios = <&pio 2 0 GPIO_ACTIVE_HIGH>; /* PC0 */
+            linux,default-trigger = "heartbeat";
+        };
+
+        cpu_led1 {
+            label = "green:cpu_led1";
+            gpios = <&pio 2 1 GPIO_ACTIVE_HIGH>; /* PC1 */
+            linux,default-trigger = "heartbeat";
         };
     };
 
@@ -140,6 +158,9 @@
 	vcc-pf-supply = <&reg_3v3>;
 	vcc-pg-supply = <&reg_3v3>;
 
+    pinctrl-names = "default";
+    pinctrl-0 = <&riscv_jtag_pins &dsp_jtag_pins>;
+
 	uart0_pg_pins: uart0-pg-pins {
 		pins = "PG17", "PG18";
 		function = "uart0";
@@ -164,6 +185,12 @@
     riscv_jtag_pins: riscv-jtag-pe-pins {
         pins = "PE4", "PE5", "PE6", "PE7";
         function = "r_jtag";
+        bias-pull-up;
+    };
+
+    dsp_jtag_pins: dsp-jtag-pe-pins {
+        pins = "PE14", "PE15", "PE16", "PE17";
+        function = "d_jtag";
         bias-pull-up;
     };
 };
@@ -236,13 +263,13 @@
 		interrupts = <GIC_SPI 0 IRQ_TYPE_LEVEL_HIGH>,
 			    <GIC_SPI 123 IRQ_TYPE_LEVEL_HIGH>,
 			    <GIC_SPI 130 IRQ_TYPE_LEVEL_HIGH>;
-		clocks = <&ccu CLK_BUS_MSGBOX0>,
+		clocks = <&ccu CLK_BUS_MSGBOX0>,<&ccu CLK_BUS_MSGBOX1>,
 			 <&ccu CLK_BUS_MSGBOX2>;
-		clock-names = "msgbox0",
+		clock-names = "msgbox0","msgbox1",
 			      "msgbox2";
-		resets = <&ccu RST_BUS_MSGBOX0>,
+		resets = <&ccu RST_BUS_MSGBOX0>,<&ccu RST_BUS_MSGBOX1>,
 			 <&ccu RST_BUS_MSGBOX2>;
-		reset-names = "rst0",
+		reset-names = "rst0","rst1",
 			      "rst2";
 		local_id = <0>;
 		status = "okay";
@@ -270,24 +297,27 @@
 		status = "okay";
 	};
 
-	dsp: rproc@1700000 {
-		compatible = "allwinner,hifi4-rproc";
-		reg = <0x01700000 0x1000>;
-		reg-names = "dsp-cfg";
+    dsp: rproc@1700000 {
+        compatible = "allwinner,hifi4-rproc";
+        reg = <0x01700000 0x1000>;
+        reg-names = "dsp-cfg";
 
-		clocks = <&ccu CLK_DSP>,
-			 <&ccu CLK_BUS_DSP_CFG>;
-		clock-names = "core", "bus";
+        clocks = <&ccu CLK_DSP>,
+                <&ccu CLK_BUS_DSP_CFG>;
+        clock-names = "core", "bus";
 
-		resets = <&ccu RST_DSP>,
-			 <&ccu RST_BUS_DSP_CFG>,
-			 <&ccu RST_BUS_DSP_DBG>;
-		reset-names = "core", "cfg", "dbg";
+        resets = <&ccu RST_DSP>,
+                <&ccu RST_BUS_DSP_CFG>,
+                <&ccu RST_BUS_DSP_DBG>;
+        reset-names = "core", "cfg", "dbg";
 
-		memory-region = <&dsp_sram_reserved>, <&dsp_ddr_reserved>;
-		firmware-name = "dsp.elf";
-		status = "okay";
-	};
+        memory-region = <&dsp_sram_reserved>, <&dsp_ddr_reserved>,
+                    <&dsp_ipc_reserved>;
+        firmware-name = "dsp.elf";
+        mboxes = <&msgbox 0>;
+        mbox-names = "arm-kick";
+        status = "okay";
+    };
 };
 
 &ehci1 {

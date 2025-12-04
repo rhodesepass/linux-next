@@ -538,11 +538,13 @@ static int sunxi_c906_probe(struct platform_device *pdev)
 	of_property_read_string(dev->of_node, "firmware-name", &fw_name);
 
 	rproc = rproc_alloc(dev, dev_name(dev), &sunxi_c906_ops, fw_name,
-				sizeof(*priv));
+			sizeof(*priv));
 	if (!rproc)
 		return -ENOMEM;
 
 	rproc->has_iommu = false;
+	rproc->auto_boot = of_property_read_bool(dev->of_node,
+					   "allwinner,auto-boot");
 	priv = rproc->priv;
 	priv->dev = dev;
 	priv->rproc = rproc;
