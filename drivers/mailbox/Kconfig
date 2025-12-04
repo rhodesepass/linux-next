@@ -323,6 +323,15 @@ config SUN6I_MSGBOX
 	  various Allwinner SoCs. This mailbox is used for communication
 	  between the application CPUs and the power management coprocessor.
 
+config SUNXI_MSGBOX
+	tristate "Allwinner sun8iw20/T113 message box"
+	depends on ARCH_SUNXI || COMPILE_TEST
+	select RESET_CONTROLLER
+	help
+	  Message box controller used for AMP communication between the
+	  Cortex-A7 cluster and the C906 co-processor found on T113/T113-S3
+	  (sun8iw20) parts. Enable this when using remoteproc/rpmsg on T113.
+
 config SPRD_MBOX
 	tristate "Spreadtrum Mailbox"
 	depends on ARCH_SPRD || COMPILE_TEST

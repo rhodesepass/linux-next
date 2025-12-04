@@ -30,10 +30,11 @@
 		#size-cells = <1>;
 		ranges;
 
-		c906_reserved: c906@45000000 {
-			reg = <0x45000000 0x00008000>; /* 32 KB for C906 firmware */
-			no-map;
-		};
+	c906_reserved: c906@41000000 {
+		/* 1 MB shared window visible to both ARM and C906 */
+		reg = <0x41000000 0x00100000>;
+		no-map;
+	};
 	};
 
     leds {
@@ -214,6 +215,27 @@
 };
 
 &{/soc} {
+	msgbox: msgbox@3003000 {
+		compatible = "allwinner,sun8iw20-msgbox";
+		#mbox-cells = <1>;
+		reg = <0x03003000 0x1000>,
+		      <0x01701000 0x1000>,
+		      <0x0601f000 0x1000>;
+		interrupts = <GIC_SPI 0 IRQ_TYPE_LEVEL_HIGH>,
+			    <GIC_SPI 123 IRQ_TYPE_LEVEL_HIGH>,
+			    <GIC_SPI 130 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&ccu CLK_BUS_MSGBOX0>,
+			 <&ccu CLK_BUS_MSGBOX2>;
+		clock-names = "msgbox0",
+			      "msgbox2";
+		resets = <&ccu RST_BUS_MSGBOX0>,
+			 <&ccu RST_BUS_MSGBOX2>;
+		reset-names = "rst0",
+			      "rst2";
+		local_id = <0>;
+		status = "okay";
+	};
+
     c906: rproc@6010000 {
         compatible = "allwinner,c906-rproc";
         reg = <0x06010000 0x1000>;
@@ -230,9 +252,9 @@
 		reset-names = "cfg";
 
 		memory-region = <&c906_reserved>;
-		/* map FW linked at 0x41000000 into reserved RAM at 0x45000000 */
-		allwinner,memory-mappings = <0x41000000 0x00008000 0x45000000>;
 		firmware-name = "c906-fw.elf";
+		mboxes = <&msgbox 4>;
+		mbox-names = "arm-kick";
 		status = "okay";
 	};
 };
