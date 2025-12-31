@@ -10,6 +10,7 @@
 
 #include <linux/bitops.h>
 #include <linux/clk.h>
+#include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/err.h>
 #include <linux/interrupt.h>
@@ -287,27 +288,35 @@ static int sunxi_msgbox_startup(struct mbox_chan *chan)
 
 static int sunxi_msgbox_send_data(struct mbox_chan *chan, void *data)
 {
-       struct sunxi_msgbox *chip = to_sunxi_msgbox(chan);
-       int local_id = chip->local_id;
-       int local_n, remote_id, remote_n, p;
-       u32 msg_num, msg;
-       void __iomem *write_reg_base;
+	struct sunxi_msgbox *chip = to_sunxi_msgbox(chan);
+	int local_id = chip->local_id;
+	int local_n, remote_id, remote_n, p;
+	u32 msg_num, msg;
+	void __iomem *write_reg_base;
+	int retry = 5000; /* ~5ms max wait for FIFO space */
 
-       msg = *(u32 *)data;
+	msg = *(u32 *)data;
 
-       mbox_chan_to_coef_n_p(chip, chan, &local_n, &p);
-       remote_id = sunxi_msgbox_remote_id(chip, local_id, local_n);
-       remote_n = sunxi_msgbox_coef_n(chip, remote_id, local_id);
-       write_reg_base = sunxi_msgbox_reg_base(chip, remote_id);
+	mbox_chan_to_coef_n_p(chip, chan, &local_n, &p);
+	remote_id = sunxi_msgbox_remote_id(chip, local_id, local_n);
+	remote_n = sunxi_msgbox_coef_n(chip, remote_id, local_id);
+	write_reg_base = sunxi_msgbox_reg_base(chip, remote_id);
 
-       msg_num = reg_bits_get(write_reg_base + SUNXI_MSGBOX_MSG_STATUS(remote_n, p),
-                              MSG_NUM_MASK, MSG_NUM_SHIFT);
-       if (msg_num >= chip->hwdata->fifo_msg_max)
-               return -EBUSY;
+	do {
+		msg_num = reg_bits_get(write_reg_base +
+				       SUNXI_MSGBOX_MSG_STATUS(remote_n, p),
+				       MSG_NUM_MASK, MSG_NUM_SHIFT);
+		if (msg_num < chip->hwdata->fifo_msg_max)
+			break;
+		udelay(1);
+	} while (--retry);
 
-       writel(msg, write_reg_base + SUNXI_MSGBOX_MSG_FIFO(remote_n, p));
+	if (retry == 0)
+		return -ETIMEDOUT;
 
-       return 0;
+	writel(msg, write_reg_base + SUNXI_MSGBOX_MSG_FIFO(remote_n, p));
+
+	return 0;
 }
 
 static void sunxi_msgbox_shutdown(struct mbox_chan *chan)

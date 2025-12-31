@@ -31,11 +31,6 @@
 #define SUNXI_C906_STA_ADDL	0x0004
 #define SUNXI_C906_STA_ADDH	0x0008
 
-/* Shared RAM layout (must match the remote firmware) */
-#define SUNXI_C906_SHMEM_DA		0x41000000
-#define SUNXI_C906_RPMSG_BUF_OFFSET	0x00020000
-#define SUNXI_C906_RPMSG_BUF_LEN	0x00040000
-
 /* CCU Base address for T113 */
 #define SUNXI_CCU_BASE		0x02001000
 #define SUNXI_CCU_SIZE		SZ_4K
@@ -131,6 +126,18 @@ static int sunxi_c906_mem_release(struct rproc *rproc, struct rproc_mem_entry *m
 	return 0;
 }
 
+static void sunxi_c906_dump_carveouts(struct rproc *rproc)
+{
+	struct rproc_mem_entry *carveout;
+
+	list_for_each_entry(carveout, &rproc->carveouts, node) {
+		dev_info(&rproc->dev,
+			 "carveout %-14s: da=0x%x dma=%pad len=0x%zx va=%pK\n",
+			 carveout->name, carveout->da, &carveout->dma,
+			 carveout->len, carveout->va);
+	}
+}
+
 /*
  * VRing structures live inside the shared RAM window described in the firmware
  * resource table.  If we let the core allocate them with dma_alloc_coherent(),
@@ -145,14 +152,30 @@ static int sunxi_c906_shared_alloc(struct rproc *rproc,
 	phys_addr_t pa;
 	bool is_iomem;
 
-	if (sunxi_c906_translate_da(priv, mem->da, &pa))
+	if (sunxi_c906_translate_da(priv, mem->da, &pa)) {
+		dev_err(priv->dev,
+			"shared_alloc(%s) translate failed: da=0x%x len=0x%zx\n",
+			mem->name, mem->da, mem->len);
 		return -EINVAL;
+	}
 
 	mem->dma = pa;
 	mem->va = sunxi_c906_da_to_va(rproc, mem->da, mem->len, &is_iomem);
 	mem->is_iomem = is_iomem;
 
-	return mem->va ? 0 : -ENOMEM;
+	if (!mem->va) {
+		dev_err(priv->dev,
+			"shared_alloc fail (%s): da=0x%x len=0x%zx -> pa=%pa va=NULL\n",
+			mem->name, mem->da, mem->len, &pa);
+		sunxi_c906_dump_carveouts(rproc);
+		return -ENOMEM;
+	}
+
+	dev_info(priv->dev,
+		 "shared_alloc ok (%s): da=0x%x len=0x%zx -> pa=%pa va=%pK iomem=%d\n",
+		 mem->name, mem->da, mem->len, &pa, mem->va, is_iomem);
+
+	return 0;
 }
 
 static int sunxi_c906_shared_release(struct rproc *rproc,
@@ -183,19 +206,69 @@ static void *sunxi_c906_da_to_va(struct rproc *rproc, u64 da, size_t len,
 	return NULL;
 }
 
+static int sunxi_c906_check_overlap(struct rproc *rproc, const char *name,
+				    u64 da, size_t len)
+{
+	struct rproc_mem_entry *fw;
+	u64 fw_start, fw_end, buf_start, buf_end;
+
+	fw = rproc_find_carveout_by_name(rproc, "c906_fw");
+	if (!fw)
+		return 0;
+
+	fw_start = fw->da;
+	fw_end = fw->da + fw->len;
+	buf_start = da;
+	buf_end = da + len;
+
+	if (fw_start < buf_end && buf_start < fw_end) {
+		dev_err(&rproc->dev,
+			"%s [0x%llx-0x%llx) overlaps c906_fw [0x%llx-0x%llx)\n",
+			name, buf_start, buf_end, fw_start, fw_end);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static int sunxi_c906_register_vdev_buffer(struct rproc *rproc, int vdev_idx)
 {
 	struct sunxi_c906 *priv = rproc->priv;
 	struct device *dev = priv->dev;
 	struct rproc_mem_entry *mem;
+	struct rproc_mem_entry *backing;
 	phys_addr_t pa;
-	u64 buf_da = SUNXI_C906_SHMEM_DA + SUNXI_C906_RPMSG_BUF_OFFSET;
+	u64 buf_da;
+	size_t buf_len;
 
-	if (sunxi_c906_translate_da(priv, buf_da, &pa))
+	backing = rproc_find_carveout_by_name(rproc, "vdev%dbuffer", vdev_idx);
+	if (!backing) {
+		dev_err(dev,
+			"missing vdev%dbuffer carveout from DTS/resource table\n",
+			vdev_idx);
+		return -EINVAL;
+	}
+
+	buf_da = backing->da;
+	buf_len = backing->len;
+
+	if (!buf_len) {
+		dev_err(dev, "vdev%dbuffer carveout has zero length\n",
+			vdev_idx);
+		return -EINVAL;
+	}
+
+	if (sunxi_c906_check_overlap(rproc, backing->name, buf_da, buf_len))
 		return -EINVAL;
 
-	mem = rproc_mem_entry_init(dev, NULL, 0,
-				   SUNXI_C906_RPMSG_BUF_LEN, buf_da,
+	if (sunxi_c906_translate_da(priv, buf_da, &pa)) {
+		dev_err(dev, "failed to translate vdev%dbuffer da 0x%llx\n",
+			vdev_idx, buf_da);
+		return -EINVAL;
+	}
+
+	mem = rproc_mem_entry_init(dev, NULL, (dma_addr_t)pa,
+				   buf_len, buf_da,
 				   sunxi_c906_shared_alloc,
 				   sunxi_c906_shared_release,
 				   "vdev%dbuffer", vdev_idx);
@@ -203,6 +276,9 @@ static int sunxi_c906_register_vdev_buffer(struct rproc *rproc, int vdev_idx)
 		return -ENOMEM;
 
 	rproc_add_carveout(rproc, mem);
+	dev_dbg(dev,
+		"vdev%dbuffer registered: da=0x%llx pa=%pa len=0x%zx\n",
+		vdev_idx, buf_da, &pa, buf_len);
 	return 0;
 }
 
@@ -240,6 +316,10 @@ static int sunxi_c906_parse_fw(struct rproc *rproc, const struct firmware *fw)
 					 it.node->name);
 		if (!mem)
 			return -ENOMEM;
+
+		dev_info(dev,
+			 "register carveout %-12s: dt-pa=0x%pa da=0x%llx size=0x%zx\n",
+			 it.node->name, &rmem->base, da, rmem->size);
 
 		rproc_coredump_add_segment(rproc, da, rmem->size);
 		rproc_add_carveout(rproc, mem);
@@ -303,6 +383,9 @@ static int sunxi_c906_parse_fw(struct rproc *rproc, const struct firmware *fw)
 		if (ret)
 			return ret;
 	}
+
+	dev_info(dev, "carveouts after resource table parse:\n");
+	sunxi_c906_dump_carveouts(rproc);
 
 	return 0;
 }

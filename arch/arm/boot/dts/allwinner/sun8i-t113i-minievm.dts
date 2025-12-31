@@ -30,9 +30,28 @@
 		#size-cells = <1>;
 		ranges;
 
-        c906_reserved: c906@41000000 {
-            /* 1 MB shared window visible to both ARM and C906 */
-            reg = <0x41000000 0x00100000>;
+        c906_fw: c906_fw@41200000 {
+            reg = <0x41200000 0x002AC000>;
+            no-map;
+        };
+
+        vdev0vring0: vdev0vring0@414ac000 {
+            reg = <0x414ac000 0x00002000>;
+            no-map;
+        };
+
+        vdev0vring1: vdev0vring1@414ae000 {
+            reg = <0x414ae000 0x00002000>;
+            no-map;
+        };
+
+        vdev0buffer: vdev0buffer@414b0000 {
+            reg = <0x414b0000 0x00040000>;
+            no-map;
+        };
+
+        c906_guard: c906_guard@414f0000 {
+            reg = <0x414f0000 0x00010000>;
             no-map;
         };
 
@@ -167,6 +186,11 @@
 		function = "uart0";
 	};
 
+	uart2_pb_pins: uart2-pb-pins {
+		pins = "PB0", "PB1";
+		function = "uart2";
+	};
+
     rgmii_pg_pins: rgmii-pg-pins {
         pins = "PG0",  "PG1",  "PG2",   /* RXCTL, RXD0, RXD1 */
                "PG3",  "PG4",  "PG5",   /* TXCK, TXD0, TXD1 */
@@ -291,7 +315,7 @@
 		resets = <&ccu RST_BUS_RISCV_CFG>;
 		reset-names = "cfg";
 
-		memory-region = <&c906_reserved>;
+		memory-region = <&c906_fw &vdev0vring0 &vdev0vring1 &vdev0buffer>;
 		firmware-name = "c906-fw.elf";
 		mboxes = <&msgbox 4>;
 		mbox-names = "arm-kick";
@@ -397,6 +421,12 @@
 &uart0 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&uart0_pg_pins>;
+	status = "okay";
+};
+
+&uart2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart2_pb_pins>;
 	status = "okay";
 };
 
