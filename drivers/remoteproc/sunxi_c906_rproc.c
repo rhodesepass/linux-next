@@ -684,7 +684,7 @@ static int sunxi_c906_probe(struct platform_device *pdev)
 	priv->mbox.client.rx_callback = sunxi_c906_mbox_rx;
 	priv->mbox.client.tx_done = sunxi_c906_mbox_tx_done;
 	priv->mbox.client.tx_block = false;
-	priv->mbox.client.knows_txdone = true;
+	priv->mbox.client.knows_txdone = false;
 
 	INIT_WORK(&priv->mbox.vq_work, sunxi_c906_mbox_vq_work);
 
