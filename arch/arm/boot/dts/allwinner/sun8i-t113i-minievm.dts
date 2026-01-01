@@ -312,6 +312,10 @@
                  <&ccu CLK_PLL_PERIPH0_800M>;
         clock-names = "core", "bus", "cfg", "axi", "pll";
 
+	assigned-clocks = <&ccu CLK_RISCV>;
+	assigned-clock-parents = <&ccu CLK_PLL_PERIPH0_800M>;
+	assigned-clock-rates = <800000000>;
+
 		resets = <&ccu RST_BUS_RISCV_CFG>;
 		reset-names = "cfg";
 

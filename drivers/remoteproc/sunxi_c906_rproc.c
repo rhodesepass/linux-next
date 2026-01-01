@@ -458,12 +458,6 @@ static int sunxi_c906_start(struct rproc *rproc)
 		 readl(priv->cfg_base + SUNXI_C906_STA_ADDL),
 		 readl(priv->cfg_base + SUNXI_C906_STA_ADDH));
 
-	/* make sure core clock mux points to the fast peri PLL (optional but safe) */
-	val = readl(priv->ccu_base + SUNXI_RISCV_CLK_REG);
-	val &= ~SUNXI_RISCV_CLK_SRC_MASK;
-	val |= SUNXI_RISCV_CLK_SRC_PERI800M;
-	writel(val, priv->ccu_base + SUNXI_RISCV_CLK_REG);
-
 	/* finally deassert core soft reset (requires key field) */
 	writel(SUNXI_RISCV_RST_KEY | SUNXI_RISCV_SOFT_RST,
 	       priv->ccu_base + SUNXI_RISCV_RST_REG);
