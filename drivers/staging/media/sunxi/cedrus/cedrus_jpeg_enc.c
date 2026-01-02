@@ -41,7 +41,23 @@ static enum cedrus_irq_status cedrus_jpeg_irq_status(struct cedrus_ctx *ctx)
 
 	if (status & 0x1) {
 		u32 length = cedrus_read(dev, VE_AVC_VLE_LENGTH) / 8;
+		void *vaddr = vb2_plane_vaddr(ctx->dst_vb, 0);
+		u32 buf_sz = vb2_plane_size(ctx->dst_vb, 0);
 
+		/*
+		 * Hardware JPEG stream lacks the EOI marker. If the buffer is
+		 * CPU-accessible and large enough, append 0xffd9 manually so
+		 * userspace gets a valid JPEG bitstream.
+		 */
+		if (vaddr && length + 2 <= buf_sz) {
+			u8 *buf = vaddr;
+
+			if (length < 2 || buf[length - 2] != 0xff ||
+			    buf[length - 1] != 0xd9) {
+				buf[length++] = 0xff;
+				buf[length++] = 0xd9;
+			}
+		}
 		vb2_set_plane_payload(ctx->dst_vb, 0, length);
 		return CEDRUS_IRQ_OK;
 	}

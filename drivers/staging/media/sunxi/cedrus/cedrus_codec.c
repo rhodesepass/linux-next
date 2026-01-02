@@ -132,6 +132,9 @@ void cedrus_enc_run(void *priv)
 	run.src = v4l2_m2m_next_src_buf(ctx->fh.m2m_ctx);
 	run.dst = v4l2_m2m_next_dst_buf(ctx->fh.m2m_ctx);
 
+	ctx->src_vb = run.src;
+	ctx->src_is_last = run.src && (run.src->flags & V4L2_BUF_FLAG_LAST);
+
 	v4l2_m2m_buf_copy_metadata(run.src, run.dst, true);
 
 	error = ctx->current_codec->setup(ctx, &run);

@@ -14,6 +14,7 @@
  */
 
 #include <linux/pm_runtime.h>
+#include <linux/reset.h>
 
 #include <media/videobuf2-dma-contig.h>
 #include <media/v4l2-device.h>
@@ -62,11 +63,11 @@ static struct cedrus_format cedrus_formats[] = {
 		.directions	= CEDRUS_ENCODE_DST,
 		.capabilities	= CEDRUS_CAPABILITY_JPEG_ENC,
 	},
-    {
-        .pixelformat    = V4L2_PIX_FMT_H264,
-        .directions = CEDRUS_ENCODE_DST,
-        .capabilities   = CEDRUS_CAPABILITY_H264_ENC,
-    },
+	{
+		.pixelformat	= V4L2_PIX_FMT_H264,
+		.directions	= CEDRUS_ENCODE_DST,
+		.capabilities	= CEDRUS_CAPABILITY_H264_ENC,
+	},
 	{
 		.pixelformat	= V4L2_PIX_FMT_NV12,
 		.directions	= CEDRUS_DECODE_DST | CEDRUS_ENCODE_SRC,
@@ -430,7 +431,7 @@ static int cedrus_s_fmt_vid_out(struct file *file, void *priv,
 	 * as the pixelformat remains. Can't be done if streaming.
 	 */
 	if (vb2_is_streaming(vq) || (vb2_is_busy(vq) &&
-	    f->fmt.pix.pixelformat != ctx->src_fmt.pixelformat))
+	     f->fmt.pix.pixelformat != ctx->src_fmt.pixelformat))
 		return -EBUSY;
 	/*
 	 * Since format change on the OUTPUT queue will reset
@@ -565,6 +566,8 @@ static int cedrus_start_streaming(struct vb2_queue *vq, unsigned int count)
 		if (ret < 0)
 			goto err_cleanup;
 
+		v4l2_m2m_update_start_streaming_state(ctx->fh.m2m_ctx, vq);
+
 		if (ctx->current_codec->start) {
 			ret = ctx->current_codec->start(ctx);
 			if (ret)
@@ -586,6 +589,33 @@ static void cedrus_stop_streaming(struct vb2_queue *vq)
 {
 	struct cedrus_ctx *ctx = vb2_get_drv_priv(vq);
 	struct cedrus_dev *dev = ctx->dev;
+	struct v4l2_m2m_dev *m2m_dev = ctx->is_enc ?
+					  dev->m2m_dev_enc : dev->m2m_dev_dec;
+	struct v4l2_m2m_ctx *m2m_ctx = ctx->fh.m2m_ctx;
+	struct vb2_v4l2_buffer *src, *dst;
+
+	/* Stop watchdog so it doesn't race with our abort/error completion. */
+	cancel_delayed_work_sync(&dev->watchdog_work);
+
+	/* Quiesce hardware if a job was running. */
+	if (ctx->current_codec && ctx->current_codec->irq_disable)
+		ctx->current_codec->irq_disable(ctx);
+	if (ctx->current_codec && ctx->current_codec->irq_clear)
+		ctx->current_codec->irq_clear(ctx);
+
+	/* Force-complete any in-flight transaction. */
+	if (v4l2_m2m_get_curr_priv(m2m_dev) == ctx) {
+		src = v4l2_m2m_src_buf_remove(m2m_ctx);
+		dst = v4l2_m2m_dst_buf_remove(m2m_ctx);
+		if (src)
+			v4l2_m2m_buf_done(src, VB2_BUF_STATE_ERROR);
+		if (dst)
+			v4l2_m2m_buf_done(dst, VB2_BUF_STATE_ERROR);
+		v4l2_m2m_job_finish(m2m_dev, m2m_ctx);
+	}
+
+	/* Reset VE to a clean state for the next stream. */
+	reset_control_reset(dev->rstc);
 
 	if (V4L2_TYPE_IS_OUTPUT(vq->type)) {
 		if (ctx->current_codec->stop)
@@ -594,6 +624,7 @@ static void cedrus_stop_streaming(struct vb2_queue *vq)
 		pm_runtime_put(dev->dev);
 	}
 
+	v4l2_m2m_update_stop_streaming_state(ctx->fh.m2m_ctx, vq);
 	cedrus_queue_cleanup(vq, VB2_BUF_STATE_ERROR);
 }
 
@@ -601,6 +632,13 @@ static void cedrus_buf_queue(struct vb2_buffer *vb)
 {
 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
 	struct cedrus_ctx *ctx = vb2_get_drv_priv(vb->vb2_queue);
+
+	/* If we're draining and this capture buffer should be LAST, return it immediately. */
+	if (V4L2_TYPE_IS_CAPTURE(vb->vb2_queue->type) &&
+	    v4l2_m2m_dst_buf_is_last(ctx->fh.m2m_ctx)) {
+		v4l2_m2m_last_buffer_done(ctx->fh.m2m_ctx, vbuf);
+		return;
+	}
 
 	v4l2_m2m_buf_queue(ctx->fh.m2m_ctx, vbuf);
 }

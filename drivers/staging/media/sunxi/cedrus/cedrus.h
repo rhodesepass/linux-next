@@ -128,6 +128,8 @@ struct cedrus_ctx {
 	struct v4l2_pix_format		src_fmt;
 	struct v4l2_pix_format		dst_fmt;
 	struct vb2_buffer		*dst_vb;
+	struct vb2_v4l2_buffer		*src_vb;
+	bool				src_is_last;
 	struct cedrus_codec_ops		*current_codec;
 	unsigned int			bit_depth;
 

@@ -141,6 +141,10 @@ static irqreturn_t cedrus_irq(int irq, void *data)
 	struct cedrus_ctx *ctx;
 	enum vb2_buffer_state state;
 	enum cedrus_irq_status status;
+	struct vb2_queue *out_vq;
+	struct vb2_v4l2_buffer *dst_vbuf;
+	struct vb2_v4l2_buffer *src_vbuf;
+	bool last_flag = false;
 
 	/*
 	 * If cancel_delayed_work returns false it means watchdog already
@@ -167,6 +171,28 @@ static irqreturn_t cedrus_irq(int irq, void *data)
 		state = VB2_BUF_STATE_ERROR;
 	else
 		state = VB2_BUF_STATE_DONE;
+
+	out_vq = v4l2_m2m_get_vq(ctx->fh.m2m_ctx,
+				 V4L2_BUF_TYPE_VIDEO_OUTPUT);
+	dst_vbuf = to_vb2_v4l2_buffer(ctx->dst_vb);
+	src_vbuf = ctx->src_vb;
+
+	if (ctx->is_enc) {
+		/* Respect userspace EOS markers and draining state. */
+		if (ctx->src_is_last)
+			last_flag = true;
+		else if (src_vbuf &&
+			 v4l2_m2m_is_last_draining_src_buf(ctx->fh.m2m_ctx,
+							   src_vbuf))
+			last_flag = true;
+	}
+
+	/* If OUTPUT already streamed off, flag LAST so userspace sees EOS. */
+	if (!vb2_is_streaming(out_vq))
+		last_flag = true;
+
+	if (last_flag)
+		dst_vbuf->flags |= V4L2_BUF_FLAG_LAST;
 
 	v4l2_m2m_buf_done_and_job_finish(ctx->dev->m2m_dev, ctx->fh.m2m_ctx,
 					 state);

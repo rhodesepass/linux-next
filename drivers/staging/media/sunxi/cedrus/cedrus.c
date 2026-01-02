@@ -17,6 +17,7 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/pm.h>
+#include <linux/reset.h>
 
 #include <media/v4l2-device.h>
 #include <media/v4l2-ioctl.h>
@@ -435,7 +436,7 @@ static int cedrus_open_dec(struct file *file)
 	ctx->bit_depth = 8;
 
 	ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(dev->m2m_dev_dec, ctx,
-				&cedrus_queue_init);
+		      &cedrus_queue_init);
 	if (IS_ERR(ctx->fh.m2m_ctx)) {
 		ret = PTR_ERR(ctx->fh.m2m_ctx);
 		goto err_free;
@@ -534,6 +535,36 @@ static int cedrus_release(struct file *file)
 	return 0;
 }
 
+static void cedrus_job_abort(void *priv)
+{
+	struct cedrus_ctx *ctx = priv;
+	struct cedrus_dev *dev = ctx->dev;
+	struct v4l2_m2m_dev *m2m_dev = ctx->is_enc ?
+					 dev->m2m_dev_enc : dev->m2m_dev_dec;
+	struct v4l2_m2m_ctx *m2m_ctx = ctx->fh.m2m_ctx;
+	struct vb2_v4l2_buffer *src, *dst;
+
+	/* Stop the watchdog to avoid double completion. */
+	cancel_delayed_work_sync(&dev->watchdog_work);
+
+	/* Best effort to quiesce the hardware. */
+	if (ctx->current_codec && ctx->current_codec->irq_disable)
+		ctx->current_codec->irq_disable(ctx);
+
+	reset_control_reset(dev->rstc);
+
+	/* Return the in-flight buffers to userspace with an error state. */
+		if (v4l2_m2m_get_curr_priv(m2m_dev) == ctx) {
+			src = v4l2_m2m_src_buf_remove(m2m_ctx);
+			dst = v4l2_m2m_dst_buf_remove(m2m_ctx);
+			if (src)
+			v4l2_m2m_buf_done(src, VB2_BUF_STATE_ERROR);
+		if (dst)
+			v4l2_m2m_buf_done(dst, VB2_BUF_STATE_ERROR);
+		v4l2_m2m_job_finish(m2m_dev, m2m_ctx);
+	}
+}
+
 static const struct v4l2_file_operations cedrus_fops_dec = {
 	.owner		= THIS_MODULE,
 	.open		= cedrus_open_dec,
@@ -555,6 +586,7 @@ static const struct video_device cedrus_video_device_dec = {
 
 static const struct v4l2_m2m_ops cedrus_m2m_ops_dec = {
 	.device_run	= cedrus_dec_run,
+	.job_abort	= cedrus_job_abort,
 };
 
 static const struct v4l2_file_operations cedrus_fops_enc = {
@@ -578,6 +610,7 @@ static const struct video_device cedrus_video_device_enc = {
 
 static const struct v4l2_m2m_ops cedrus_m2m_ops_enc = {
 	.device_run	= cedrus_enc_run,
+	.job_abort	= cedrus_job_abort,
 };
 
 static const struct media_device_ops cedrus_m2m_media_ops = {
@@ -617,7 +650,7 @@ static int cedrus_m2m_register_dec(struct cedrus_dev *dev)
 	}
 
 	ret = v4l2_m2m_register_media_controller(m2m_dev, vfd,
-				MEDIA_ENT_F_PROC_VIDEO_DECODER);
+		      MEDIA_ENT_F_PROC_VIDEO_DECODER);
 	if (ret) {
 		v4l2_err(v4l2_dev, "Failed to register m2m_dev dec\n");
 		v4l2_m2m_release(m2m_dev);
@@ -662,7 +695,7 @@ static int cedrus_m2m_register_enc(struct cedrus_dev *dev)
 	}
 
 	ret = v4l2_m2m_register_media_controller(m2m_dev, vfd,
-				MEDIA_ENT_F_PROC_VIDEO_ENCODER);
+		      MEDIA_ENT_F_PROC_VIDEO_ENCODER);
 	if (ret) {
 		v4l2_err(v4l2_dev, "Failed to register m2m_dev enc\n");
 		v4l2_m2m_release(m2m_dev);
