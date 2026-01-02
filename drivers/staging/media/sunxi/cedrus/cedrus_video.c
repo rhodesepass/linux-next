@@ -695,6 +695,7 @@ int cedrus_queue_init(void *priv, struct vb2_queue *src_vq,
 	src_vq->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
 	src_vq->lock = &ctx->dev->dev_mutex;
 	src_vq->dev = ctx->dev->dev;
+	src_vq->non_coherent_mem = ctx->dev->use_iommu;
 	src_vq->supports_requests = ctx->is_enc ? false : true;
 	src_vq->requires_requests = ctx->is_enc ? false : true;
 
@@ -711,6 +712,7 @@ int cedrus_queue_init(void *priv, struct vb2_queue *src_vq,
 	dst_vq->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
 	dst_vq->lock = &ctx->dev->dev_mutex;
 	dst_vq->dev = ctx->dev->dev;
+	dst_vq->non_coherent_mem = ctx->dev->use_iommu;
 
 	return vb2_queue_init(dst_vq);
 }

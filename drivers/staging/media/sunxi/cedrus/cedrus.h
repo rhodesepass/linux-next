@@ -255,6 +255,9 @@ struct cedrus_dev {
 
 	unsigned int		capabilities;
 
+	/* True when device is attached to an IOMMU so we can map non-contig memory. */
+	bool			use_iommu;
+
 	struct delayed_work	watchdog_work;
 };
 

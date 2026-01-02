@@ -17,7 +17,9 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/pm.h>
+#include <linux/iommu.h>
 #include <linux/reset.h>
+#include <linux/dma-mapping.h>
 
 #include <media/v4l2-device.h>
 #include <media/v4l2-ioctl.h>
@@ -713,6 +715,8 @@ static int cedrus_probe(struct platform_device *pdev)
 	struct cedrus_dev *dev;
 	int ret;
 
+	dev_info(&pdev->dev, "cedrus probe start\n");
+
 	dev = devm_kzalloc(&pdev->dev, sizeof(*dev), GFP_KERNEL);
 	if (!dev)
 		return -ENOMEM;
@@ -728,6 +732,30 @@ static int cedrus_probe(struct platform_device *pdev)
 	if (ret) {
 		dev_err(&pdev->dev, "Failed to probe hardware\n");
 		return ret;
+	}
+
+	/* When an IOMMU is present, allow vb2 to use non-contiguous backing and
+	 * ask the DMA layer to merge large segments into a single IOVA. This
+	 * relaxes the contiguous-physical memory requirement that pressured CMA.
+	 */
+	dev->use_iommu = device_iommu_mapped(dev->dev);
+
+	ret = dma_set_mask_and_coherent(dev->dev, DMA_BIT_MASK(32));
+	if (ret)
+		dev_warn(dev->dev, "Failed to set 32-bit DMA mask: %d\n", ret);
+
+	if (dev->use_iommu)
+		dev_info(dev->dev, "VE buffers will use IOMMU-backed non-contiguous allocations\n");
+	else
+		dev_info(dev->dev, "VE buffers will use physically contiguous (CMA) allocations\n");
+
+	if (dev->use_iommu) {
+		ret = vb2_dma_contig_set_max_seg_size(dev->dev,
+						      DMA_BIT_MASK(32));
+		if (ret)
+			dev_warn(dev->dev,
+				 "Failed to raise max segment size for IOMMU: %d\n",
+				 ret);
 	}
 
 	mutex_init(&dev->dev_mutex);
@@ -761,6 +789,9 @@ static int cedrus_probe(struct platform_device *pdev)
 		v4l2_err(&dev->v4l2_dev, "Failed to register media device\n");
 		goto err_m2m_enc;
 	}
+
+	dev_info(&pdev->dev, "cedrus probe done (IOMMU %s)\n",
+		 dev->use_iommu ? "enabled" : "disabled");
 
 	return 0;
 

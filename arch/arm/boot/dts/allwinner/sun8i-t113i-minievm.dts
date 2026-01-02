@@ -277,6 +277,7 @@
 
 &cedrus {
 	status = "okay";
+	iommus = <&iommu 0 1>;
 };
 
 &cpu0 {

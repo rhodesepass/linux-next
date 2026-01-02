@@ -550,6 +550,7 @@ static size_t sunxi_iommu_unmap(struct iommu_domain *domain, unsigned long iova,
 	if (IOPDE_INDEX(iova_start) == IOPDE_INDEX(iova_end)) {
 		dent = iopde_offset(sunxi_domain->pgtable, iova_start);
 		if (IS_VALID(*dent)) {
+			pent = iopte_offset(dent, s_iova_start);
 			for (flush_count = 0; iova_start <= iova_end;
 						iova_start += SPAGE_SIZE) {
 				pent = iopte_offset(dent, iova_start);
@@ -560,6 +561,12 @@ static size_t sunxi_iommu_unmap(struct iommu_domain *domain, unsigned long iova,
 					flush_count << 2, DMA_TO_DEVICE);
 			/*invalid ptwcache*/
 			sunxi_ptw_cache_invalid(s_iova_start);
+			/* Free the PTE page to fix memory leak */
+			pent = iopte_offset(dent, s_iova_start);
+			dma_sync_single_for_cpu(dma_dev, virt_to_phys(dent), sizeof(*dent), DMA_TO_DEVICE);
+			*dent = 0;
+			dma_sync_single_for_device(dma_dev, virt_to_phys(dent), sizeof(*dent), DMA_TO_DEVICE);
+			sunxi_free_iopte(pent);
 		}
 		goto done;
 	}
@@ -660,6 +667,7 @@ static size_t sunxi_iommu_unmap(struct iommu_domain *domain, unsigned long iova,
 	if (IOPDE_INDEX(iova_start) == IOPDE_INDEX(iova_end)) {
 		dent = iopde_offset(sunxi_domain->pgtable, iova_start);
 		if (IS_VALID(*dent)) {
+			pent = iopte_offset(dent, s_iova_start);
 			for (flush_count = 0; iova_start <= iova_end;
 						iova_start += SPAGE_SIZE) {
 				pent = iopte_offset(dent, iova_start);
@@ -668,6 +676,12 @@ static size_t sunxi_iommu_unmap(struct iommu_domain *domain, unsigned long iova,
 			}
 			dma_sync_single_for_device(dma_dev, virt_to_phys(iopte_offset(dent, s_iova_start)),
 					flush_count << 2, DMA_TO_DEVICE);
+			/* Free the PTE page to fix memory leak */
+			pent = iopte_offset(dent, s_iova_start);
+			dma_sync_single_for_cpu(dma_dev, virt_to_phys(dent), sizeof(*dent), DMA_TO_DEVICE);
+			*dent = 0;
+			dma_sync_single_for_device(dma_dev, virt_to_phys(dent), sizeof(*dent), DMA_TO_DEVICE);
+			sunxi_free_iopte(pent);
 		}
 		goto done;
 	}
@@ -750,6 +764,7 @@ static size_t sunxi_iommu_unmap(struct iommu_domain *domain, unsigned long iova,
 	if (IOPDE_INDEX(iova_start) == IOPDE_INDEX(iova_end)) {
 		dent = iopde_offset(sunxi_domain->pgtable, iova_start);
 		if (IS_VALID(*dent)) {
+			pent = iopte_offset(dent, s_iova_start);
 			for (flush_count = 0; iova_start <= iova_end;
 						iova_start += SPAGE_SIZE) {
 				pent = iopte_offset(dent, iova_start);
@@ -762,6 +777,12 @@ static size_t sunxi_iommu_unmap(struct iommu_domain *domain, unsigned long iova,
 					flush_count << 2, DMA_TO_DEVICE);
 			/*invalid ptwcache*/
 			sunxi_ptw_cache_invalid(s_iova_start);
+			/* Free PTE page to fix memory leak */
+			pent = iopte_offset(dent, s_iova_start);
+			dma_sync_single_for_cpu(dma_dev, virt_to_phys(dent), sizeof(*dent), DMA_TO_DEVICE);
+			*dent = 0;
+			dma_sync_single_for_device(dma_dev, virt_to_phys(dent), sizeof(*dent), DMA_TO_DEVICE);
+			sunxi_free_iopte(pent);
 		}
 		goto out;
 	} else {
@@ -986,6 +1007,8 @@ static void sunxi_iommu_release_device(struct device *dev)
 		return;
 
 	sunxi_enable_device_iommu(owner->tlbid, false);
+	kfree(owner);
+	dev_iommu_priv_set(dev, NULL);
 }
 
 static int
@@ -1002,7 +1025,10 @@ sunxi_iommu_of_xlate(struct device *dev, const struct of_phandle_args *args)
 	if (!data)
 		return -ENODEV;
 
-	owner = devm_kzalloc(dev, sizeof(*owner), GFP_KERNEL);
+	/* Do not use devm here: of_xlate runs before driver probe, so devres
+	 * would remain on the device and trigger "Resources present before probing".
+	 */
+	owner = kzalloc(sizeof(*owner), GFP_KERNEL);
 	if (!owner)
 		return -ENOMEM;
 
@@ -1838,6 +1864,16 @@ static void sunxi_iommu_get_resv_regions(struct device *dev,
 	struct iommu_resv_region *entry;
 	struct iommu_resv_region *region;
 
+	if (!head) {
+		pr_warn("sunxi-iommu: get_resv_regions called with NULL list head\n");
+		return;
+	}
+
+	if (!global_iommu_dev) {
+		pr_warn("sunxi-iommu: get_resv_regions with NULL global_iommu_dev\n");
+		return;
+	}
+
 	if (list_empty(&global_iommu_dev->rsv_list))
 		__init_reserve_mem(global_iommu_dev);
 
@@ -1935,6 +1971,7 @@ static int sunxi_iommu_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, sunxi_iommu);
 	sunxi_iommu->dev = dev;
 	spin_lock_init(&sunxi_iommu->iommu_lock);
+	INIT_LIST_HEAD(&sunxi_iommu->rsv_list);
 	global_iommu_dev = sunxi_iommu;
 
 	if (dev->parent)
@@ -1954,8 +1991,6 @@ static int sunxi_iommu_probe(struct platform_device *pdev)
 		dev_err(dev, "Failed to register iommu\n");
 		goto err_remove_sysfs;
 	}
-
-	INIT_LIST_HEAD(&sunxi_iommu->rsv_list);
 
 	if (!dma_dev)
 		dma_dev = &pdev->dev;
