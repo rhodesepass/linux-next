@@ -911,7 +911,7 @@ static unsigned int cedrus_h265_extra_cap_size(struct cedrus_ctx *ctx,
 	return 0;
 }
 
-struct cedrus_dec_ops cedrus_dec_ops_h265 = {
+struct cedrus_codec_ops cedrus_dec_ops_h265 = {
 	.irq_clear	= cedrus_h265_irq_clear,
 	.irq_disable	= cedrus_h265_irq_disable,
 	.irq_status	= cedrus_h265_irq_status,

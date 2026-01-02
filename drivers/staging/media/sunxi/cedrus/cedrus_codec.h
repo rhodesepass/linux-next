@@ -13,9 +13,10 @@
  * Marek Szyprowski, <m.szyprowski@samsung.com>
  */
 
-#ifndef _CEDRUS_DEC_H_
-#define _CEDRUS_DEC_H_
+#ifndef _CEDRUS_CODEC_H_
+#define _CEDRUS_CODEC_H_
 
-void cedrus_device_run(void *priv);
+void cedrus_dec_run(void *priv);
+void cedrus_enc_run(void *priv);
 
 #endif

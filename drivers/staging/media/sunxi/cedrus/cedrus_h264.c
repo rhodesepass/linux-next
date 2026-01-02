@@ -700,7 +700,7 @@ static void cedrus_h264_trigger(struct cedrus_ctx *ctx)
 		     VE_H264_TRIGGER_TYPE_AVC_SLICE_DECODE);
 }
 
-struct cedrus_dec_ops cedrus_dec_ops_h264 = {
+struct cedrus_codec_ops cedrus_dec_ops_h264 = {
 	.irq_clear	= cedrus_h264_irq_clear,
 	.irq_disable	= cedrus_h264_irq_disable,
 	.irq_status	= cedrus_h264_irq_status,

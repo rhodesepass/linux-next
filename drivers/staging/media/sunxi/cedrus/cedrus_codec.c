@@ -19,16 +19,18 @@
 #include <media/v4l2-mem2mem.h>
 
 #include "cedrus.h"
-#include "cedrus_dec.h"
+#include "cedrus_codec.h"
 #include "cedrus_hw.h"
 
-void cedrus_device_run(void *priv)
+void cedrus_dec_run(void *priv)
 {
 	struct cedrus_ctx *ctx = priv;
 	struct cedrus_dev *dev = ctx->dev;
 	struct cedrus_run run = {};
 	struct media_request *src_req;
 	int error;
+
+	dev->m2m_dev = dev->m2m_dev_dec;
 
 	run.src = v4l2_m2m_next_src_buf(ctx->fh.m2m_ctx);
 	run.dst = v4l2_m2m_next_dst_buf(ctx->fh.m2m_ctx);
@@ -112,7 +114,40 @@ void cedrus_device_run(void *priv)
 
 		ctx->current_codec->trigger(ctx);
 	} else {
-		v4l2_m2m_buf_done_and_job_finish(ctx->dev->m2m_dev,
+		v4l2_m2m_buf_done_and_job_finish(ctx->dev->m2m_dev_dec,
+						 ctx->fh.m2m_ctx,
+						 VB2_BUF_STATE_ERROR);
+	}
+}
+
+void cedrus_enc_run(void *priv)
+{
+	struct cedrus_ctx *ctx = priv;
+	struct cedrus_dev *dev = ctx->dev;
+	struct cedrus_run run = {};
+	int error;
+
+	dev->m2m_dev = dev->m2m_dev_enc;
+
+	run.src = v4l2_m2m_next_src_buf(ctx->fh.m2m_ctx);
+	run.dst = v4l2_m2m_next_dst_buf(ctx->fh.m2m_ctx);
+
+	v4l2_m2m_buf_copy_metadata(run.src, run.dst, true);
+
+	error = ctx->current_codec->setup(ctx, &run);
+	if (error)
+		v4l2_err(&ctx->dev->v4l2_dev,
+			 "Failed to setup encoding job: %d\n", error);
+
+	/* Trigger encoding if setup went well, bail out otherwise. */
+	if (!error) {
+		/* Start the watchdog timer. */
+		schedule_delayed_work(&dev->watchdog_work,
+				      msecs_to_jiffies(2000));
+
+		ctx->current_codec->trigger(ctx);
+	} else {
+		v4l2_m2m_buf_done_and_job_finish(ctx->dev->m2m_dev_enc,
 						 ctx->fh.m2m_ctx,
 						 VB2_BUF_STATE_ERROR);
 	}

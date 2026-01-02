@@ -23,11 +23,13 @@
 
 #include "cedrus.h"
 #include "cedrus_video.h"
-#include "cedrus_dec.h"
+#include "cedrus_codec.h"
 #include "cedrus_hw.h"
 
 #define CEDRUS_DECODE_SRC	BIT(0)
 #define CEDRUS_DECODE_DST	BIT(1)
+#define CEDRUS_ENCODE_SRC	BIT(2)
+#define CEDRUS_ENCODE_DST	BIT(3)
 
 #define CEDRUS_MIN_WIDTH	16U
 #define CEDRUS_MIN_HEIGHT	16U
@@ -56,8 +58,18 @@ static struct cedrus_format cedrus_formats[] = {
 		.capabilities	= CEDRUS_CAPABILITY_VP8_DEC,
 	},
 	{
+		.pixelformat	= V4L2_PIX_FMT_JPEG,
+		.directions	= CEDRUS_ENCODE_DST,
+		.capabilities	= CEDRUS_CAPABILITY_JPEG_ENC,
+	},
+    {
+        .pixelformat    = V4L2_PIX_FMT_H264,
+        .directions = CEDRUS_ENCODE_DST,
+        .capabilities   = CEDRUS_CAPABILITY_H264_ENC,
+    },
+	{
 		.pixelformat	= V4L2_PIX_FMT_NV12,
-		.directions	= CEDRUS_DECODE_DST,
+		.directions	= CEDRUS_DECODE_DST | CEDRUS_ENCODE_SRC,
 		.capabilities	= CEDRUS_CAPABILITY_UNTILED,
 	},
 	{
@@ -128,6 +140,8 @@ void cedrus_prepare_format(struct v4l2_pix_format *pix_fmt)
 	case V4L2_PIX_FMT_H264_SLICE:
 	case V4L2_PIX_FMT_HEVC_SLICE:
 	case V4L2_PIX_FMT_VP8_FRAME:
+	case V4L2_PIX_FMT_JPEG:
+	case V4L2_PIX_FMT_H264:
 		/* Zero bytes per line for encoded source. */
 		bytesperline = 0;
 		/* Choose some minimum size since this can't be 0 */
@@ -221,13 +235,19 @@ static int cedrus_enum_fmt(struct file *file, struct v4l2_fmtdesc *f,
 static int cedrus_enum_fmt_vid_cap(struct file *file, void *priv,
 				   struct v4l2_fmtdesc *f)
 {
-	return cedrus_enum_fmt(file, f, CEDRUS_DECODE_DST);
+	struct cedrus_ctx *ctx = cedrus_file2ctx(file);
+
+	return cedrus_enum_fmt(file, f, ctx->is_enc ?
+			CEDRUS_ENCODE_DST : CEDRUS_DECODE_DST);
 }
 
 static int cedrus_enum_fmt_vid_out(struct file *file, void *priv,
 				   struct v4l2_fmtdesc *f)
 {
-	return cedrus_enum_fmt(file, f, CEDRUS_DECODE_SRC);
+	struct cedrus_ctx *ctx = cedrus_file2ctx(file);
+
+	return cedrus_enum_fmt(file, f, ctx->is_enc ?
+			CEDRUS_ENCODE_SRC : CEDRUS_DECODE_SRC);
 }
 
 static int cedrus_g_fmt_vid_cap(struct file *file, void *priv,
@@ -252,8 +272,8 @@ static int cedrus_try_fmt_vid_cap_p(struct cedrus_ctx *ctx,
 				    struct v4l2_pix_format *pix_fmt)
 {
 	struct cedrus_format *fmt =
-		cedrus_find_format(ctx, pix_fmt->pixelformat,
-				   CEDRUS_DECODE_DST);
+		cedrus_find_format(ctx, pix_fmt->pixelformat, ctx->is_enc ?
+				   CEDRUS_ENCODE_DST : CEDRUS_DECODE_DST);
 
 	if (!fmt)
 		return -EINVAL;
@@ -280,8 +300,8 @@ static int cedrus_try_fmt_vid_out_p(struct cedrus_ctx *ctx,
 				    struct v4l2_pix_format *pix_fmt)
 {
 	struct cedrus_format *fmt =
-		cedrus_find_format(ctx, pix_fmt->pixelformat,
-				   CEDRUS_DECODE_SRC);
+		cedrus_find_format(ctx, pix_fmt->pixelformat, ctx->is_enc ?
+				   CEDRUS_ENCODE_SRC : CEDRUS_DECODE_SRC);
 
 	if (!fmt)
 		return -EINVAL;
@@ -314,6 +334,15 @@ static int cedrus_s_fmt_vid_cap(struct file *file, void *priv,
 		return ret;
 
 	ctx->dst_fmt = f->fmt.pix;
+
+	switch (ctx->dst_fmt.pixelformat) {
+	case V4L2_PIX_FMT_JPEG:
+		ctx->current_codec = &cedrus_enc_ops_jpeg;
+		break;
+	case V4L2_PIX_FMT_H264:
+		ctx->current_codec = &cedrus_enc_ops_h264;
+		break;
+	}
 
 	return 0;
 }
@@ -362,6 +391,12 @@ static int cedrus_s_fmt_vid_out_p(struct cedrus_ctx *ctx,
 		break;
 	case V4L2_PIX_FMT_VP8_FRAME:
 		ctx->current_codec = &cedrus_dec_ops_vp8;
+		break;
+	case V4L2_PIX_FMT_NV12:
+		if (ctx->dst_fmt.pixelformat == V4L2_PIX_FMT_H264)
+			ctx->current_codec = &cedrus_enc_ops_h264;
+		else
+			ctx->current_codec = &cedrus_enc_ops_jpeg;
 		break;
 	}
 
@@ -436,6 +471,8 @@ const struct v4l2_ioctl_ops cedrus_ioctl_ops = {
 
 	.vidioc_try_decoder_cmd		= v4l2_m2m_ioctl_stateless_try_decoder_cmd,
 	.vidioc_decoder_cmd		= v4l2_m2m_ioctl_stateless_decoder_cmd,
+	.vidioc_try_encoder_cmd = v4l2_m2m_ioctl_try_encoder_cmd,
+	.vidioc_encoder_cmd = v4l2_m2m_ioctl_encoder_cmd,
 
 	.vidioc_subscribe_event		= v4l2_ctrl_subscribe_event,
 	.vidioc_unsubscribe_event	= v4l2_event_unsubscribe,
@@ -600,8 +637,8 @@ int cedrus_queue_init(void *priv, struct vb2_queue *src_vq,
 	src_vq->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
 	src_vq->lock = &ctx->dev->dev_mutex;
 	src_vq->dev = ctx->dev->dev;
-	src_vq->supports_requests = true;
-	src_vq->requires_requests = true;
+	src_vq->supports_requests = ctx->is_enc ? false : true;
+	src_vq->requires_requests = ctx->is_enc ? false : true;
 
 	ret = vb2_queue_init(src_vq);
 	if (ret)

@@ -25,7 +25,7 @@
 
 #include "cedrus.h"
 #include "cedrus_video.h"
-#include "cedrus_dec.h"
+#include "cedrus_codec.h"
 #include "cedrus_hw.h"
 
 static int cedrus_try_ctrl(struct v4l2_ctrl *ctrl)
@@ -82,8 +82,28 @@ static int cedrus_try_ctrl(struct v4l2_ctrl *ctrl)
 	return 0;
 }
 
+static int cedrus_s_ctrl(struct v4l2_ctrl *ctrl)
+{
+	struct cedrus_ctx *ctx = container_of(ctrl->handler, struct cedrus_ctx, hdl);
+
+	switch (ctrl->id) {
+	case V4L2_CID_JPEG_COMPRESSION_QUALITY:
+		ctx->codec.jpegenc.jpeg_quality = ctrl->val;
+		break;
+	case V4L2_CID_MPEG_VIDEO_H264_I_PERIOD:
+		ctx->codec.h264enc.keyframe_interval = ctrl->val;
+		break;
+	case V4L2_CID_MPEG_VIDEO_H264_MAX_QP:
+		ctx->codec.h264enc.pic_init_qp = ctrl->val;
+		break;
+	}
+
+	return 0;
+}
+
 static const struct v4l2_ctrl_ops cedrus_ctrl_ops = {
 	.try_ctrl = cedrus_try_ctrl,
+	.s_ctrl = cedrus_s_ctrl,
 };
 
 static const struct cedrus_control cedrus_controls[] = {
@@ -241,6 +261,48 @@ static const struct cedrus_control cedrus_controls[] = {
 		},
 		.capabilities	= CEDRUS_CAPABILITY_H265_DEC,
 	},
+	{
+		.cfg = {
+			.id = V4L2_CID_MPEG_VIDEO_H264_LEVEL,
+			.def = V4L2_MPEG_VIDEO_H264_LEVEL_4_1,
+			.min = V4L2_MPEG_VIDEO_H264_LEVEL_4_1,
+			.max = V4L2_MPEG_VIDEO_H264_LEVEL_4_1,
+		},
+		.capabilities   = CEDRUS_CAPABILITY_H264_ENC,
+	},
+	{
+		.cfg = {
+			.id = V4L2_CID_JPEG_COMPRESSION_QUALITY,
+			.min = 5,
+			.max = 100,
+			.step = 1,
+			.def = 50,
+			.ops	= &cedrus_ctrl_ops,
+		},
+		.capabilities	= CEDRUS_CAPABILITY_JPEG_ENC,
+	},
+	{
+		.cfg = {
+			.id = V4L2_CID_MPEG_VIDEO_H264_I_PERIOD,
+			.min = 1,
+			.max = 50,
+			.step = 1,
+			.def = 12,
+			.ops	= &cedrus_ctrl_ops,
+		},
+		.capabilities	= CEDRUS_CAPABILITY_H264_ENC,
+	},
+	{
+		.cfg = {
+			.id = V4L2_CID_MPEG_VIDEO_H264_MAX_QP,
+			.min = 1,
+			.max = 50,
+			.step = 1,
+			.def = 24,
+			.ops	= &cedrus_ctrl_ops,
+		},
+		.capabilities	= CEDRUS_CAPABILITY_H264_ENC,
+	},
 };
 
 #define CEDRUS_CONTROLS_COUNT	ARRAY_SIZE(cedrus_controls)
@@ -350,7 +412,7 @@ static int cedrus_request_validate(struct media_request *req)
 	return vb2_request_validate(req);
 }
 
-static int cedrus_open(struct file *file)
+static int cedrus_open_dec(struct file *file)
 {
 	struct cedrus_dev *dev = video_drvdata(file);
 	struct cedrus_ctx *ctx = NULL;
@@ -365,11 +427,64 @@ static int cedrus_open(struct file *file)
 		return -ENOMEM;
 	}
 
+	ctx->is_enc = false;
+
 	v4l2_fh_init(&ctx->fh, video_devdata(file));
+	file->private_data = &ctx->fh;
 	ctx->dev = dev;
 	ctx->bit_depth = 8;
 
-	ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(dev->m2m_dev, ctx,
+	ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(dev->m2m_dev_dec, ctx,
+				&cedrus_queue_init);
+	if (IS_ERR(ctx->fh.m2m_ctx)) {
+		ret = PTR_ERR(ctx->fh.m2m_ctx);
+		goto err_free;
+	}
+
+	cedrus_reset_out_format(ctx);
+
+	ret = cedrus_init_ctrls(dev, ctx);
+	if (ret)
+		goto err_m2m_release;
+
+	v4l2_fh_add(&ctx->fh, file);
+
+	mutex_unlock(&dev->dev_mutex);
+
+	return 0;
+
+err_m2m_release:
+	v4l2_m2m_ctx_release(ctx->fh.m2m_ctx);
+err_free:
+	kfree(ctx);
+	mutex_unlock(&dev->dev_mutex);
+
+	return ret;
+}
+
+static int cedrus_open_enc(struct file *file)
+{
+	struct cedrus_dev *dev = video_drvdata(file);
+	struct cedrus_ctx *ctx = NULL;
+	int ret;
+
+	if (mutex_lock_interruptible(&dev->dev_mutex))
+		return -ERESTARTSYS;
+
+	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+	if (!ctx) {
+		mutex_unlock(&dev->dev_mutex);
+		return -ENOMEM;
+	}
+
+	ctx->is_enc = true;
+
+	v4l2_fh_init(&ctx->fh, video_devdata(file));
+	file->private_data = &ctx->fh;
+	ctx->dev = dev;
+	ctx->bit_depth = 8;
+
+	ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(dev->m2m_dev_enc, ctx,
 					    &cedrus_queue_init);
 	if (IS_ERR(ctx->fh.m2m_ctx)) {
 		ret = PTR_ERR(ctx->fh.m2m_ctx);
@@ -419,27 +534,50 @@ static int cedrus_release(struct file *file)
 	return 0;
 }
 
-static const struct v4l2_file_operations cedrus_fops = {
+static const struct v4l2_file_operations cedrus_fops_dec = {
 	.owner		= THIS_MODULE,
-	.open		= cedrus_open,
+	.open		= cedrus_open_dec,
 	.release	= cedrus_release,
 	.poll		= v4l2_m2m_fop_poll,
 	.unlocked_ioctl	= video_ioctl2,
 	.mmap		= v4l2_m2m_fop_mmap,
 };
 
-static const struct video_device cedrus_video_device = {
-	.name		= CEDRUS_NAME,
+static const struct video_device cedrus_video_device_dec = {
+	.name		= "cedrus-dec",
 	.vfl_dir	= VFL_DIR_M2M,
-	.fops		= &cedrus_fops,
+	.fops		= &cedrus_fops_dec,
 	.ioctl_ops	= &cedrus_ioctl_ops,
 	.minor		= -1,
 	.release	= video_device_release_empty,
 	.device_caps	= V4L2_CAP_VIDEO_M2M | V4L2_CAP_STREAMING,
 };
 
-static const struct v4l2_m2m_ops cedrus_m2m_ops = {
-	.device_run	= cedrus_device_run,
+static const struct v4l2_m2m_ops cedrus_m2m_ops_dec = {
+	.device_run	= cedrus_dec_run,
+};
+
+static const struct v4l2_file_operations cedrus_fops_enc = {
+	.owner		= THIS_MODULE,
+	.open		= cedrus_open_enc,
+	.release	= cedrus_release,
+	.poll		= v4l2_m2m_fop_poll,
+	.unlocked_ioctl	= video_ioctl2,
+	.mmap		= v4l2_m2m_fop_mmap,
+};
+
+static const struct video_device cedrus_video_device_enc = {
+	.name		= "cedrus-enc",
+	.vfl_dir	= VFL_DIR_M2M,
+	.fops		= &cedrus_fops_enc,
+	.ioctl_ops	= &cedrus_ioctl_ops,
+	.minor		= -1,
+	.release	= video_device_release_empty,
+	.device_caps	= V4L2_CAP_VIDEO_M2M | V4L2_CAP_STREAMING,
+};
+
+static const struct v4l2_m2m_ops cedrus_m2m_ops_enc = {
+	.device_run	= cedrus_enc_run,
 };
 
 static const struct media_device_ops cedrus_m2m_media_ops = {
@@ -447,10 +585,99 @@ static const struct media_device_ops cedrus_m2m_media_ops = {
 	.req_queue	= v4l2_m2m_request_queue,
 };
 
+static int cedrus_m2m_register_dec(struct cedrus_dev *dev)
+{
+	struct v4l2_device *v4l2_dev = &dev->v4l2_dev;
+	struct video_device *vfd = &dev->vfd_dec;
+	struct v4l2_m2m_dev	*m2m_dev;
+	int ret;
+
+	vfd->lock = &dev->dev_mutex;
+	vfd->v4l2_dev = v4l2_dev;
+	strscpy(vfd->name, "cedrus-dec", sizeof(vfd->name));
+
+	v4l2_disable_ioctl(vfd, VIDIOC_ENCODER_CMD);
+	v4l2_disable_ioctl(vfd, VIDIOC_TRY_ENCODER_CMD);
+
+	video_set_drvdata(vfd, dev);
+
+	ret = video_register_device(vfd, VFL_TYPE_VIDEO, 0);
+	if (ret) {
+		v4l2_err(v4l2_dev, "Failed to register vfd dec\n");
+		return ret;
+	}
+
+	v4l2_info(v4l2_dev, "dec registered as /dev/video%d\n", vfd->num);
+
+	m2m_dev = v4l2_m2m_init(&cedrus_m2m_ops_dec);
+	if (IS_ERR(m2m_dev)) {
+		v4l2_err(v4l2_dev, "Failed to initialize m2m_dev dec\n");
+		video_unregister_device(vfd);
+		return PTR_ERR(m2m_dev);
+	}
+
+	ret = v4l2_m2m_register_media_controller(m2m_dev, vfd,
+				MEDIA_ENT_F_PROC_VIDEO_DECODER);
+	if (ret) {
+		v4l2_err(v4l2_dev, "Failed to register m2m_dev dec\n");
+		v4l2_m2m_release(m2m_dev);
+		video_unregister_device(vfd);
+		return ret;
+	}
+
+	dev->m2m_dev_dec = m2m_dev;
+
+	return 0;
+}
+
+static int cedrus_m2m_register_enc(struct cedrus_dev *dev)
+{
+	struct v4l2_device *v4l2_dev = &dev->v4l2_dev;
+	struct video_device *vfd = &dev->vfd_enc;
+	struct v4l2_m2m_dev	*m2m_dev;
+	int ret;
+
+	vfd->lock = &dev->dev_mutex;
+	vfd->v4l2_dev = v4l2_dev;
+	strscpy(vfd->name, "cedrus-enc", sizeof(vfd->name));
+
+	v4l2_disable_ioctl(vfd, VIDIOC_DECODER_CMD);
+	v4l2_disable_ioctl(vfd, VIDIOC_TRY_DECODER_CMD);
+
+	video_set_drvdata(vfd, dev);
+
+	ret = video_register_device(vfd, VFL_TYPE_VIDEO, 0);
+	if (ret) {
+		v4l2_err(v4l2_dev, "Failed to register vfd enc\n");
+		return ret;
+	}
+
+	v4l2_info(v4l2_dev, "enc registered as /dev/video%d\n", vfd->num);
+
+	m2m_dev = v4l2_m2m_init(&cedrus_m2m_ops_enc);
+	if (IS_ERR(m2m_dev)) {
+		v4l2_err(v4l2_dev, "Failed to initialize m2m_dev enc\n");
+		video_unregister_device(vfd);
+		return PTR_ERR(m2m_dev);
+	}
+
+	ret = v4l2_m2m_register_media_controller(m2m_dev, vfd,
+				MEDIA_ENT_F_PROC_VIDEO_ENCODER);
+	if (ret) {
+		v4l2_err(v4l2_dev, "Failed to register m2m_dev enc\n");
+		v4l2_m2m_release(m2m_dev);
+		video_unregister_device(vfd);
+		return ret;
+	}
+
+	dev->m2m_dev_enc = m2m_dev;
+
+	return 0;
+}
+
 static int cedrus_probe(struct platform_device *pdev)
 {
 	struct cedrus_dev *dev;
-	struct video_device *vfd;
 	int ret;
 
 	dev = devm_kzalloc(&pdev->dev, sizeof(*dev), GFP_KERNEL);
@@ -459,7 +686,8 @@ static int cedrus_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, dev);
 
-	dev->vfd = cedrus_video_device;
+	dev->vfd_dec = cedrus_video_device_dec;
+	dev->vfd_enc = cedrus_video_device_enc;
 	dev->dev = &pdev->dev;
 	dev->pdev = pdev;
 
@@ -470,29 +698,12 @@ static int cedrus_probe(struct platform_device *pdev)
 	}
 
 	mutex_init(&dev->dev_mutex);
-
 	INIT_DELAYED_WORK(&dev->watchdog_work, cedrus_watchdog);
 
 	ret = v4l2_device_register(&pdev->dev, &dev->v4l2_dev);
 	if (ret) {
 		dev_err(&pdev->dev, "Failed to register V4L2 device\n");
 		return ret;
-	}
-
-	vfd = &dev->vfd;
-	vfd->lock = &dev->dev_mutex;
-	vfd->v4l2_dev = &dev->v4l2_dev;
-
-	snprintf(vfd->name, sizeof(vfd->name), "%s", cedrus_video_device.name);
-	video_set_drvdata(vfd, dev);
-
-	dev->m2m_dev = v4l2_m2m_init(&cedrus_m2m_ops);
-	if (IS_ERR(dev->m2m_dev)) {
-		v4l2_err(&dev->v4l2_dev,
-			 "Failed to initialize V4L2 M2M device\n");
-		ret = PTR_ERR(dev->m2m_dev);
-
-		goto err_v4l2;
 	}
 
 	dev->mdev.dev = &pdev->dev;
@@ -504,38 +715,32 @@ static int cedrus_probe(struct platform_device *pdev)
 	dev->mdev.ops = &cedrus_m2m_media_ops;
 	dev->v4l2_dev.mdev = &dev->mdev;
 
-	ret = video_register_device(vfd, VFL_TYPE_VIDEO, 0);
-	if (ret) {
-		v4l2_err(&dev->v4l2_dev, "Failed to register video device\n");
-		goto err_m2m;
-	}
+	ret = cedrus_m2m_register_dec(dev);
+	if (ret)
+		goto err_mdev_clean;
 
-	v4l2_info(&dev->v4l2_dev,
-		  "Device registered as /dev/video%d\n", vfd->num);
-
-	ret = v4l2_m2m_register_media_controller(dev->m2m_dev, vfd,
-						 MEDIA_ENT_F_PROC_VIDEO_DECODER);
-	if (ret) {
-		v4l2_err(&dev->v4l2_dev,
-			 "Failed to initialize V4L2 M2M media controller\n");
-		goto err_video;
-	}
+	ret = cedrus_m2m_register_enc(dev);
+	if (ret)
+		goto err_m2m_dec;
 
 	ret = media_device_register(&dev->mdev);
 	if (ret) {
 		v4l2_err(&dev->v4l2_dev, "Failed to register media device\n");
-		goto err_m2m_mc;
+		goto err_m2m_enc;
 	}
 
 	return 0;
 
-err_m2m_mc:
-	v4l2_m2m_unregister_media_controller(dev->m2m_dev);
-err_video:
-	video_unregister_device(&dev->vfd);
-err_m2m:
-	v4l2_m2m_release(dev->m2m_dev);
-err_v4l2:
+err_m2m_enc:
+	v4l2_m2m_unregister_media_controller(dev->m2m_dev_enc);
+	v4l2_m2m_release(dev->m2m_dev_enc);
+	video_unregister_device(&dev->vfd_enc);
+err_m2m_dec:
+	v4l2_m2m_unregister_media_controller(dev->m2m_dev_dec);
+	v4l2_m2m_release(dev->m2m_dev_dec);
+	video_unregister_device(&dev->vfd_dec);
+err_mdev_clean:
+	media_device_cleanup(&dev->mdev);
 	v4l2_device_unregister(&dev->v4l2_dev);
 
 	return ret;
@@ -548,12 +753,15 @@ static void cedrus_remove(struct platform_device *pdev)
 	cancel_delayed_work_sync(&dev->watchdog_work);
 	if (media_devnode_is_registered(dev->mdev.devnode)) {
 		media_device_unregister(&dev->mdev);
-		v4l2_m2m_unregister_media_controller(dev->m2m_dev);
+		v4l2_m2m_unregister_media_controller(dev->m2m_dev_dec);
+		v4l2_m2m_unregister_media_controller(dev->m2m_dev_enc);
 		media_device_cleanup(&dev->mdev);
 	}
 
-	v4l2_m2m_release(dev->m2m_dev);
-	video_unregister_device(&dev->vfd);
+	v4l2_m2m_release(dev->m2m_dev_dec);
+	v4l2_m2m_release(dev->m2m_dev_enc);
+	video_unregister_device(&dev->vfd_dec);
+	video_unregister_device(&dev->vfd_enc);
 	v4l2_device_unregister(&dev->v4l2_dev);
 
 	cedrus_hw_remove(dev);
@@ -607,7 +815,9 @@ static const struct cedrus_variant sun8i_r40_cedrus_variant = {
 	.capabilities	= CEDRUS_CAPABILITY_UNTILED |
 			  CEDRUS_CAPABILITY_MPEG2_DEC |
 			  CEDRUS_CAPABILITY_H264_DEC |
-			  CEDRUS_CAPABILITY_VP8_DEC,
+			  CEDRUS_CAPABILITY_VP8_DEC |
+			  CEDRUS_CAPABILITY_JPEG_ENC |
+			  CEDRUS_CAPABILITY_H264_ENC,
 	.mod_rate	= 297000000,
 };
 
@@ -615,7 +825,8 @@ static const struct cedrus_variant sun20i_d1_cedrus_variant = {
 	.capabilities	= CEDRUS_CAPABILITY_UNTILED |
 			  CEDRUS_CAPABILITY_MPEG2_DEC |
 			  CEDRUS_CAPABILITY_H264_DEC |
-			  CEDRUS_CAPABILITY_H265_DEC,
+			  CEDRUS_CAPABILITY_H265_DEC |
+			  CEDRUS_CAPABILITY_JPEG_ENC,
 	.mod_rate	= 432000000,
 };
 

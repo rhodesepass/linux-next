@@ -26,6 +26,12 @@
 #include <linux/platform_device.h>
 #include <linux/workqueue.h>
 
+#define pinfo(fmt, arg...) \
+	printk("dbg: %s: %d " fmt, __func__, __LINE__, ## arg)
+
+#define JPEG_HEADER_SIZE	624
+#define JPEG_QUANT_SIZE		64
+
 #define CEDRUS_NAME			"cedrus"
 
 #define CEDRUS_CAPABILITY_UNTILED	BIT(0)
@@ -34,6 +40,8 @@
 #define CEDRUS_CAPABILITY_MPEG2_DEC	BIT(3)
 #define CEDRUS_CAPABILITY_VP8_DEC	BIT(4)
 #define CEDRUS_CAPABILITY_H265_10_DEC	BIT(5)
+#define CEDRUS_CAPABILITY_JPEG_ENC	BIT(6)
+#define CEDRUS_CAPABILITY_H264_ENC  BIT(7)
 
 enum cedrus_irq_status {
 	CEDRUS_IRQ_NONE,
@@ -115,10 +123,12 @@ struct cedrus_buffer {
 struct cedrus_ctx {
 	struct v4l2_fh			fh;
 	struct cedrus_dev		*dev;
+	bool			is_enc;
 
 	struct v4l2_pix_format		src_fmt;
 	struct v4l2_pix_format		dst_fmt;
-	struct cedrus_dec_ops		*current_codec;
+	struct vb2_buffer		*dst_vb;
+	struct cedrus_codec_ops		*current_codec;
 	unsigned int			bit_depth;
 
 	struct v4l2_ctrl_handler	hdl;
@@ -152,6 +162,47 @@ struct cedrus_ctx {
 			u8		*entropy_probs_buf;
 			dma_addr_t	entropy_probs_buf_dma;
 		} vp8;
+		struct h264enc {
+			struct h264enc_ref_pic {
+				void *va_luma_buffer;
+				dma_addr_t pa_luma_buffer;
+				void *va_chroma_buffer;
+				dma_addr_t pa_chroma_buffer;
+				void *va_extra_buffer;
+				dma_addr_t pa_extra_buffer;
+			} ref_picture[2];
+			size_t sz_luma_buffer;
+			size_t sz_extra_buffer;
+
+			void *va_extra_buffer_line;
+			dma_addr_t pa_extra_buffer_line;
+			size_t sz_extra_buffer_line;
+			void  *va_extra_buffer_frame;
+			dma_addr_t pa_extra_buffer_frame;
+			size_t sz_extra_buffer_frame;
+
+			unsigned int mb_width;
+			unsigned int mb_height;
+			unsigned int mb_stride;
+			unsigned int crop_right;
+			unsigned int crop_bottom;
+			unsigned int write_sps_pps;
+			unsigned int pic_init_qp;
+			unsigned int keyframe_interval;
+			unsigned int current_frame_num;
+			enum slice_type { SLICE_P = 0, SLICE_I = 2 } current_slice_type;
+		} h264enc;
+		struct jpegenc {
+			unsigned int width;
+			unsigned int height;
+			unsigned int mb_width;
+			unsigned int mb_height;
+			unsigned int mb_stride;
+			unsigned int jpeg_quality;
+			unsigned char header[JPEG_HEADER_SIZE];
+			unsigned char hw_luma_qtable[JPEG_QUANT_SIZE];
+			unsigned char hw_chroma_qtable[JPEG_QUANT_SIZE];
+		} jpegenc;
 	} codec;
 };
 
@@ -160,7 +211,7 @@ static inline struct cedrus_ctx *cedrus_file2ctx(struct file *file)
 	return container_of(file_to_v4l2_fh(file), struct cedrus_ctx, fh);
 }
 
-struct cedrus_dec_ops {
+struct cedrus_codec_ops {
 	void (*irq_clear)(struct cedrus_ctx *ctx);
 	void (*irq_disable)(struct cedrus_ctx *ctx);
 	enum cedrus_irq_status (*irq_status)(struct cedrus_ctx *ctx);
@@ -179,12 +230,15 @@ struct cedrus_variant {
 
 struct cedrus_dev {
 	struct v4l2_device	v4l2_dev;
-	struct video_device	vfd;
+	struct video_device	vfd_dec;
+	struct video_device	vfd_enc;
 	struct media_device	mdev;
 	struct media_pad	pad[2];
 	struct platform_device	*pdev;
 	struct device		*dev;
 	struct v4l2_m2m_dev	*m2m_dev;
+	struct v4l2_m2m_dev	*m2m_dev_dec;
+	struct v4l2_m2m_dev	*m2m_dev_enc;
 
 	/* Device file mutex */
 	struct mutex		dev_mutex;
@@ -202,10 +256,12 @@ struct cedrus_dev {
 	struct delayed_work	watchdog_work;
 };
 
-extern struct cedrus_dec_ops cedrus_dec_ops_mpeg2;
-extern struct cedrus_dec_ops cedrus_dec_ops_h264;
-extern struct cedrus_dec_ops cedrus_dec_ops_h265;
-extern struct cedrus_dec_ops cedrus_dec_ops_vp8;
+extern struct cedrus_codec_ops cedrus_dec_ops_mpeg2;
+extern struct cedrus_codec_ops cedrus_dec_ops_h264;
+extern struct cedrus_codec_ops cedrus_dec_ops_h265;
+extern struct cedrus_codec_ops cedrus_dec_ops_vp8;
+extern struct cedrus_codec_ops cedrus_enc_ops_jpeg;
+extern struct cedrus_codec_ops cedrus_enc_ops_h264;
 
 static inline void cedrus_write(struct cedrus_dev *dev, u32 reg, u32 val)
 {
@@ -275,5 +331,7 @@ cedrus_is_capable(struct cedrus_ctx *ctx, unsigned int capabilities)
 
 void *cedrus_find_control_data(struct cedrus_ctx *ctx, u32 id);
 u32 cedrus_get_num_of_controls(struct cedrus_ctx *ctx, u32 id);
+
+void cedrus_jpeg_header_assemble(struct jpegenc *c);
 
 #endif

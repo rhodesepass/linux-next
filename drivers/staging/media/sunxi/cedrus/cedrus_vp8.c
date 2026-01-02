@@ -871,7 +871,7 @@ static void cedrus_vp8_trigger(struct cedrus_ctx *ctx)
 		     VE_H264_TRIGGER_TYPE_VP8_SLICE_DECODE);
 }
 
-struct cedrus_dec_ops cedrus_dec_ops_vp8 = {
+struct cedrus_codec_ops cedrus_dec_ops_vp8 = {
 	.irq_clear	= cedrus_vp8_irq_clear,
 	.irq_disable	= cedrus_vp8_irq_disable,
 	.irq_status	= cedrus_vp8_irq_status,

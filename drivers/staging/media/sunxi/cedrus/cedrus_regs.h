@@ -34,6 +34,7 @@
 #define VE_ENGINE_DEC_H265			0x500
 
 #define VE_MODE					0x00
+#define VE_RESET				0x04
 
 #define VE_MODE_PIC_WIDTH_IS_4096		BIT(22)
 #define VE_MODE_PIC_WIDTH_MORE_2048		BIT(21)
@@ -713,5 +714,7 @@
 #define VE_AVC_REF_SLUMA		0xbb8
 #define VE_AVC_REC_SLUMA		0xbbc
 #define VE_AVC_MB_INFO			0xbc0
+#define VE_AVC_SRAM_INDEX		0xbe0
+#define VE_AVC_SRAM_DATA		0xbe4
 
 #endif

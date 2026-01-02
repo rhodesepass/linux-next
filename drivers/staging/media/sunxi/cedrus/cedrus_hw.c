@@ -57,6 +57,13 @@ int cedrus_engine_enable(struct cedrus_ctx *ctx)
 		reg |= VE_MODE_DEC_H265;
 		break;
 
+	case V4L2_PIX_FMT_NV12:
+		/* Disable decoders */
+		reg |= 0x7;
+		/* Enable AVC encoder and ISP */
+		reg |= (1 << 7) | (1 << 6);
+		break;
+
 	default:
 		return -EINVAL;
 	}

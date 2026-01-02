@@ -189,7 +189,7 @@ static void cedrus_mpeg2_trigger(struct cedrus_ctx *ctx)
 	cedrus_write(dev, VE_DEC_MPEG_TRIGGER, reg);
 }
 
-struct cedrus_dec_ops cedrus_dec_ops_mpeg2 = {
+struct cedrus_codec_ops cedrus_dec_ops_mpeg2 = {
 	.irq_clear	= cedrus_mpeg2_irq_clear,
 	.irq_disable	= cedrus_mpeg2_irq_disable,
 	.irq_status	= cedrus_mpeg2_irq_status,
