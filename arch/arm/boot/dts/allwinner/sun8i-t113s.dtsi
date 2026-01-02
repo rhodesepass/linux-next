@@ -64,3 +64,15 @@
 		interrupt-affinity = <&cpu0>, <&cpu1>;
 	};
 };
+
+&{/soc} {
+	iommu: iommu@2010000 {
+		compatible = "allwinner,sunxi-iommu";
+		reg = <0x02010000 0x1000>;
+		interrupts = <SOC_PERIPHERAL_IRQ(64) IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&ccu CLK_BUS_IOMMU>;
+		clock-names = "iommu";
+		#iommu-cells = <2>;
+		status = "okay";
+	};
+};
