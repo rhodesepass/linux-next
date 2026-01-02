@@ -406,7 +406,29 @@ static int cedrus_avc_start(struct cedrus_ctx *ctx)
 	return 0;
 
 mem_err:
-	cedrus_avc_stop(ctx);
+	/* Clean up any partially allocated buffers */
+	for (i = 0; i < 2; i++) {
+		if (c->ref_picture[i].va_luma_buffer != NULL)
+			dma_free_coherent(dev->dev, c->sz_luma_buffer,
+					c->ref_picture[i].va_luma_buffer,
+					c->ref_picture[i].pa_luma_buffer);
+
+		if (c->ref_picture[i].va_extra_buffer != NULL)
+			dma_free_coherent(dev->dev, c->sz_extra_buffer,
+					c->ref_picture[i].va_extra_buffer,
+					c->ref_picture[i].pa_extra_buffer);
+	}
+
+	if (c->va_extra_buffer_frame != NULL)
+		dma_free_coherent(dev->dev, c->sz_extra_buffer_frame,
+				c->va_extra_buffer_frame,
+				c->pa_extra_buffer_frame);
+
+	if (c->va_extra_buffer_line != NULL)
+		dma_free_coherent(dev->dev, c->sz_extra_buffer_line,
+				c->va_extra_buffer_line,
+				c->pa_extra_buffer_line);
+
 	return -ENOMEM;
 }
 

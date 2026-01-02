@@ -123,6 +123,21 @@ void cedrus_dst_format_set(struct cedrus_dev *dev,
 		cedrus_write(dev, VE_PRIMARY_FB_LINE_STRIDE, reg);
 
 		break;
+
+	case V4L2_PIX_FMT_YUV422P:
+		chroma_size = ALIGN(width, 16) * ALIGN(height, 16);
+
+		reg = VE_PRIMARY_OUT_FMT_YUV422P;
+		cedrus_write(dev, VE_PRIMARY_OUT_FMT, reg);
+
+		reg = chroma_size / 2;
+		cedrus_write(dev, VE_PRIMARY_CHROMA_BUF_LEN, reg);
+
+		reg = VE_PRIMARY_FB_LINE_STRIDE_LUMA(ALIGN(width, 16)) |
+		      VE_PRIMARY_FB_LINE_STRIDE_CHROMA(ALIGN(width, 16) / 2);
+		cedrus_write(dev, VE_PRIMARY_FB_LINE_STRIDE, reg);
+
+		break;
 	case V4L2_PIX_FMT_NV12_32L32:
 	default:
 		reg = VE_PRIMARY_OUT_FMT_TILED_32_NV12;
