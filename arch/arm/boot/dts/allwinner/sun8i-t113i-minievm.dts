@@ -55,9 +55,18 @@
             no-map;
         };
 
-        dsp_ipc_reserved: dsp-ipc@41100000 {
-            /* Shared IPC window for HiFi4 <-> CPU RPMsg traffic */
-            reg = <0x41100000 0x00100000>;
+        dsp_vring0: dsp-vring0@41100000 {
+            reg = <0x41100000 0x00002000>;
+            no-map;
+        };
+
+        dsp_vring1: dsp-vring1@41102000 {
+            reg = <0x41102000 0x00002000>;
+            no-map;
+        };
+
+        dsp_vdevbuf: dsp-vdevbuf@41104000 {
+            reg = <0x41104000 0x000fc000>;
             no-map;
         };
 
@@ -68,8 +77,7 @@
         };
 
         dsp_ddr_reserved: dsp-ddr@4fc00000 {
-            /* DSP working buffer in DRAM, keep clear of kernel buddy */
-            reg = <0x4fc00000 0x00200000>;
+            reg = <0x4fc00000 0x00400000>;
             no-map;
         };
 	};
@@ -80,7 +88,7 @@
         sys_led {
             label = "green:status";
             gpios = <&pio 6 11 GPIO_ACTIVE_HIGH>; /* PG11 */
-            linux,default-trigger = "heartbeat";
+            linux,default-trigger = "none";
         };
 
         cpu_led0 {
@@ -189,6 +197,11 @@
 	uart2_pb_pins: uart2-pb-pins {
 		pins = "PB0", "PB1";
 		function = "uart2";
+	};
+
+	uart3_pb_pins: uart3-pb-pins {
+		pins = "PB6", "PB7";
+		function = "uart3";
 	};
 
     rgmii_pg_pins: rgmii-pg-pins {
@@ -312,9 +325,9 @@
                  <&ccu CLK_PLL_PERIPH0_800M>;
         clock-names = "core", "bus", "cfg", "axi", "pll";
 
-	assigned-clocks = <&ccu CLK_RISCV>;
-	assigned-clock-parents = <&ccu CLK_PLL_PERIPH0_800M>;
-	assigned-clock-rates = <800000000>;
+        assigned-clocks = <&ccu CLK_RISCV>;
+        assigned-clock-parents = <&ccu CLK_PLL_PERIPH0_800M>;
+        assigned-clock-rates = <800000000>;
 
 		resets = <&ccu RST_BUS_RISCV_CFG>;
 		reset-names = "cfg";
@@ -335,13 +348,16 @@
                 <&ccu CLK_BUS_DSP_CFG>;
         clock-names = "core", "bus";
 
+        assigned-clocks = <&ccu CLK_DSP>;
+        assigned-clock-parents = <&ccu CLK_PLL_PERIPH0_2X>;
+        assigned-clock-rates = <600000000>;
+
         resets = <&ccu RST_DSP>,
                 <&ccu RST_BUS_DSP_CFG>,
                 <&ccu RST_BUS_DSP_DBG>;
         reset-names = "core", "cfg", "dbg";
 
-        memory-region = <&dsp_sram_reserved>, <&dsp_ddr_reserved>,
-                    <&dsp_ipc_reserved>;
+        memory-region = <&dsp_sram_reserved &dsp_ddr_reserved &dsp_vring0 &dsp_vring1 &dsp_vdevbuf>;
         firmware-name = "dsp.elf";
         mboxes = <&msgbox 0>;
         mbox-names = "arm-kick";
@@ -431,6 +447,12 @@
 &uart2 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&uart2_pb_pins>;
+	status = "okay";
+};
+
+&uart3 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart3_pb_pins>;
 	status = "okay";
 };
 

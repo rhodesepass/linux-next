@@ -80,6 +80,7 @@ struct sunxi_hifi4 {
 static void sunxi_hifi4_flush_carveouts(struct sunxi_hifi4 *priv)
 {
 	struct rproc_mem_entry *carveout;
+	phys_addr_t pa;
 
 	list_for_each_entry(carveout, &priv->rproc->carveouts, node) {
 		/* SRAM / MMIO 通过 ioremap 映成 device memory，本身就不走 CPU D-cache */
@@ -90,8 +91,35 @@ static void sunxi_hifi4_flush_carveouts(struct sunxi_hifi4 *priv)
 			continue;
 		}
 
-		dma_sync_single_for_device(priv->dev, carveout->dma,
+		/* Use the physical address; va may be from vmap() and not linear. */
+		pa = carveout->dma;
+		if (pa >= PAGE_OFFSET) {
+			dev_warn(priv->dev,
+				 "skip cache flush for suspect pa (looks like VA) %s pa=%pa len=%zu\n",
+				 carveout->name, &pa, carveout->len);
+			continue;
+		}
+		if (!pfn_valid(PFN_DOWN(pa))) {
+			dev_warn(priv->dev,
+				 "skip cache flush for non-RAM carveout %s pa=%pa len=%zu\n",
+				 carveout->name, &pa, carveout->len);
+			continue;
+		}
+
+		dma_sync_single_for_device(priv->dev, pa,
 					   carveout->len, DMA_TO_DEVICE);
+	}
+}
+
+static void sunxi_hifi4_dump_carveouts(struct rproc *rproc)
+{
+	struct rproc_mem_entry *carveout;
+
+	list_for_each_entry(carveout, &rproc->carveouts, node) {
+		dev_info(&rproc->dev,
+			 "carveout %-14s: da=0x%x dma=%pad len=0x%zx va=%pK iomem=%d\n",
+			 carveout->name, carveout->da, &carveout->dma,
+			 carveout->len, carveout->va, carveout->is_iomem);
 	}
 }
 
@@ -211,10 +239,19 @@ static int sunxi_hifi4_mem_alloc(struct rproc *rproc,
 {
 	struct sunxi_hifi4 *priv = rproc->priv;
 	bool is_ram = pfn_valid(PFN_DOWN(mem->dma));
+	bool force_ioremap = false;
 
 	/* DSP DDR: map via vmap of struct pages to avoid ioremap() warning */
 	if (!strcmp(mem->name, "dsp-ddr"))
 		is_ram = true;
+
+	/*
+	 * Other DSP DDR carveouts (vring / vdev buffer) are tagged no-map in DT.
+	 * They are still in RAM but lack a linear kernel mapping, so phys_to_virt()
+	 * would fault. Map them via ioremap and treat as IOMEM to avoid cache ops.
+	 */
+	if (is_ram && strcmp(mem->name, "dsp-ddr"))
+		force_ioremap = true;
 
 	/* Map carveouts: DDR (vmap), normal RAM (phys_to_virt), SRAM/IOMEM (ioremap) */
 	if (!strcmp(mem->name, "dsp-ddr")) {
@@ -235,6 +272,11 @@ static int sunxi_hifi4_mem_alloc(struct rproc *rproc,
 		}
 		mem->priv = pagelist;
 		mem->is_iomem = false;
+	} else if (force_ioremap) {
+		mem->va = ioremap(mem->dma, mem->len);
+		if (!mem->va)
+			return -ENOMEM;
+		mem->is_iomem = true;
 	} else if (is_ram) {
 		mem->va = phys_to_virt(mem->dma);
 		mem->is_iomem = false;
@@ -270,16 +312,31 @@ static int sunxi_hifi4_shared_alloc(struct rproc *rproc,
 {
 	struct sunxi_hifi4 *priv = rproc->priv;
 	phys_addr_t pa;
-	bool is_iomem;
+	bool is_iomem = false;
 
-	if (sunxi_hifi4_translate_da(priv, mem->da, &pa))
+	if (sunxi_hifi4_translate_da(priv, mem->da, &pa)) {
+		dev_err(priv->dev,
+			"shared_alloc(%s) translate failed: da=0x%x len=0x%zx\n",
+			mem->name, mem->da, mem->len);
 		return -EINVAL;
+	}
 
 	mem->dma = pa;
 	mem->va = sunxi_hifi4_da_to_va(rproc, mem->da, mem->len, &is_iomem);
 	mem->is_iomem = is_iomem;
 
-	return mem->va ? 0 : -ENOMEM;
+	if (!mem->va) {
+		dev_err(priv->dev,
+			"shared_alloc fail (%s): da=0x%x len=0x%zx -> pa=%pa va=NULL\n",
+			mem->name, mem->da, mem->len, &pa);
+		sunxi_hifi4_dump_carveouts(rproc);
+		return -ENOMEM;
+	}
+
+	dev_info(priv->dev,
+		 "shared_alloc ok (%s): da=0x%x len=0x%zx -> pa=%pa va=%pK iomem=%d\n",
+		 mem->name, mem->da, mem->len, &pa, mem->va, is_iomem);
+	return 0;
 }
 
 static int sunxi_hifi4_shared_release(struct rproc *rproc,
@@ -309,6 +366,9 @@ static int sunxi_hifi4_register_vdev_buffer(struct rproc *rproc, int vdev_idx)
 		return -ENOMEM;
 
 	rproc_add_carveout(rproc, mem);
+	dev_dbg(dev,
+		"vdev%dbuffer registered: da=0x%llx pa=%pa len=0x%x\n",
+		vdev_idx, buf_da, &pa, SUNXI_HIFI4_RPMSG_BUF_LEN);
 	return 0;
 }
 
@@ -344,6 +404,10 @@ static int sunxi_hifi4_parse_fw(struct rproc *rproc, const struct firmware *fw)
 					   it.node->name);
 		if (!mem)
 			return -ENOMEM;
+
+		dev_info(dev,
+			 "register carveout %-12s: dt-pa=0x%pa da=0x%llx size=0x%zx\n",
+			 it.node->name, &rmem->base, da, rmem->size);
 
 		rproc_coredump_add_segment(rproc, da, rmem->size);
 		rproc_add_carveout(rproc, mem);
@@ -404,6 +468,9 @@ static int sunxi_hifi4_parse_fw(struct rproc *rproc, const struct firmware *fw)
 			vdev_idx++;
 		}
 	}
+
+	dev_info(dev, "carveouts after resource table parse:\n");
+	sunxi_hifi4_dump_carveouts(rproc);
 
 	return 0;
 }
@@ -517,13 +584,11 @@ static int sunxi_hifi4_stop(struct rproc *rproc)
 {
 	struct sunxi_hifi4 *priv = rproc->priv;
 
-	// sunxi_hifi4_set_runstall(priv, true);
-	// if (priv->rst_core)
-	// 	reset_control_assert(priv->rst_core);
-	// if (priv->rst_dbg)
-	// 	reset_control_assert(priv->rst_dbg);
-
-	dev_err(priv->dev, "[FAKE STOP DBG]sunxi_hifi4_stop\n");
+	sunxi_hifi4_set_runstall(priv, true);
+	if (priv->rst_core)
+		reset_control_assert(priv->rst_core);
+	if (priv->rst_dbg)
+		reset_control_assert(priv->rst_dbg);
 
 	return 0;
 }
