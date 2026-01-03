@@ -68,6 +68,16 @@ static inline u32 *iopte_offset(u32 *ent, unsigned int iova)
 	return (u32 *)__va(iopte_base) + IOPTE_INDEX(iova);
 }
 
+static inline u32 *iopte_page(u32 *ent)
+{
+	unsigned long iopte_base = IOPTE_BASE(*ent);
+
+	if (iopte_base < SUNXI_PHYS_OFFSET)
+		iopte_base += SUNXI_4G_PHYS_OFFSET;
+
+	return (u32 *)__va(iopte_base);
+}
+
 /*
  * cpu phy 0x0000 0000 ~ 0x4000 0000 is reserved for IO access,
  * iommu phy in between 0x0000 0000 ~ 0x4000 0000 should not used
@@ -550,6 +560,7 @@ static size_t sunxi_iommu_unmap(struct iommu_domain *domain, unsigned long iova,
 	if (IOPDE_INDEX(iova_start) == IOPDE_INDEX(iova_end)) {
 		dent = iopde_offset(sunxi_domain->pgtable, iova_start);
 		if (IS_VALID(*dent)) {
+			u32 *pent_page = iopte_page(dent);
 			pent = iopte_offset(dent, s_iova_start);
 			for (flush_count = 0; iova_start <= iova_end;
 						iova_start += SPAGE_SIZE) {
@@ -562,11 +573,10 @@ static size_t sunxi_iommu_unmap(struct iommu_domain *domain, unsigned long iova,
 			/*invalid ptwcache*/
 			sunxi_ptw_cache_invalid(s_iova_start);
 			/* Free the PTE page to fix memory leak */
-			pent = iopte_offset(dent, s_iova_start);
 			dma_sync_single_for_cpu(dma_dev, virt_to_phys(dent), sizeof(*dent), DMA_TO_DEVICE);
 			*dent = 0;
 			dma_sync_single_for_device(dma_dev, virt_to_phys(dent), sizeof(*dent), DMA_TO_DEVICE);
-			sunxi_free_iopte(pent);
+			sunxi_free_iopte(pent_page);
 		}
 		goto done;
 	}
@@ -597,6 +607,7 @@ static size_t sunxi_iommu_unmap(struct iommu_domain *domain, unsigned long iova,
 			i++, iova_start += SPD_SIZE) {
 			dent = iopde_offset(sunxi_domain->pgtable, iova_start);
 			if (IS_VALID(*dent)) {
+				u32 *pent_page = iopte_page(dent);
 				pent = iopte_offset(dent, iova_start);
 				dma_sync_single_for_cpu(dma_dev, virt_to_phys(pent), PT_SIZE, DMA_TO_DEVICE);
 				memset(pent, 0, PT_SIZE);
@@ -605,7 +616,7 @@ static size_t sunxi_iommu_unmap(struct iommu_domain *domain, unsigned long iova,
 				*dent = 0;
 				dma_sync_single_for_device(dma_dev, virt_to_phys(dent), sizeof(*dent), DMA_TO_DEVICE);
 				sunxi_ptw_cache_invalid(iova_start);
-				sunxi_free_iopte(pent);
+				sunxi_free_iopte(pent_page);
 			}
 		}
 	}
@@ -667,6 +678,7 @@ static size_t sunxi_iommu_unmap(struct iommu_domain *domain, unsigned long iova,
 	if (IOPDE_INDEX(iova_start) == IOPDE_INDEX(iova_end)) {
 		dent = iopde_offset(sunxi_domain->pgtable, iova_start);
 		if (IS_VALID(*dent)) {
+			u32 *pent_page = iopte_page(dent);
 			pent = iopte_offset(dent, s_iova_start);
 			for (flush_count = 0; iova_start <= iova_end;
 						iova_start += SPAGE_SIZE) {
@@ -677,11 +689,10 @@ static size_t sunxi_iommu_unmap(struct iommu_domain *domain, unsigned long iova,
 			dma_sync_single_for_device(dma_dev, virt_to_phys(iopte_offset(dent, s_iova_start)),
 					flush_count << 2, DMA_TO_DEVICE);
 			/* Free the PTE page to fix memory leak */
-			pent = iopte_offset(dent, s_iova_start);
 			dma_sync_single_for_cpu(dma_dev, virt_to_phys(dent), sizeof(*dent), DMA_TO_DEVICE);
 			*dent = 0;
 			dma_sync_single_for_device(dma_dev, virt_to_phys(dent), sizeof(*dent), DMA_TO_DEVICE);
-			sunxi_free_iopte(pent);
+			sunxi_free_iopte(pent_page);
 		}
 		goto done;
 	}
@@ -708,6 +719,7 @@ static size_t sunxi_iommu_unmap(struct iommu_domain *domain, unsigned long iova,
 			i++, iova_start += SPD_SIZE) {
 			dent = iopde_offset(sunxi_domain->pgtable, iova_start);
 			if (IS_VALID(*dent)) {
+				u32 *pent_page = iopte_page(dent);
 				pent = iopte_offset(dent, iova_start);
 				dma_sync_single_for_cpu(dma_dev, virt_to_phys(pent), PT_SIZE, DMA_TO_DEVICE);
 				memset(pent, 0, PT_SIZE);
@@ -715,7 +727,7 @@ static size_t sunxi_iommu_unmap(struct iommu_domain *domain, unsigned long iova,
 				dma_sync_single_for_cpu(dma_dev, virt_to_phys(dent), sizeof(*dent), DMA_TO_DEVICE);
 				*dent = 0;
 				dma_sync_single_for_device(dma_dev, virt_to_phys(dent), sizeof(*dent), DMA_TO_DEVICE);
-				sunxi_free_iopte(pent);
+				sunxi_free_iopte(pent_page);
 			}
 		}
 	}
@@ -764,6 +776,7 @@ static size_t sunxi_iommu_unmap(struct iommu_domain *domain, unsigned long iova,
 	if (IOPDE_INDEX(iova_start) == IOPDE_INDEX(iova_end)) {
 		dent = iopde_offset(sunxi_domain->pgtable, iova_start);
 		if (IS_VALID(*dent)) {
+			u32 *pent_page = iopte_page(dent);
 			pent = iopte_offset(dent, s_iova_start);
 			for (flush_count = 0; iova_start <= iova_end;
 						iova_start += SPAGE_SIZE) {
@@ -778,11 +791,10 @@ static size_t sunxi_iommu_unmap(struct iommu_domain *domain, unsigned long iova,
 			/*invalid ptwcache*/
 			sunxi_ptw_cache_invalid(s_iova_start);
 			/* Free PTE page to fix memory leak */
-			pent = iopte_offset(dent, s_iova_start);
 			dma_sync_single_for_cpu(dma_dev, virt_to_phys(dent), sizeof(*dent), DMA_TO_DEVICE);
 			*dent = 0;
 			dma_sync_single_for_device(dma_dev, virt_to_phys(dent), sizeof(*dent), DMA_TO_DEVICE);
-			sunxi_free_iopte(pent);
+			sunxi_free_iopte(pent_page);
 		}
 		goto out;
 	} else {
@@ -808,17 +820,18 @@ static size_t sunxi_iommu_unmap(struct iommu_domain *domain, unsigned long iova,
 			i++, iova_start += SPD_SIZE) {
 			dent = iopde_offset(sunxi_domain->pgtable, iova_start);
 			if (IS_VALID(*dent)) {
+				u32 *pent_page = iopte_page(dent);
 				pent = iopte_offset(dent, iova_start);
 				dma_sync_single_for_cpu(dma_dev, virt_to_phys(pent), PT_SIZE, DMA_TO_DEVICE);
 				memset(pent, 0, PT_SIZE);
 				dma_sync_single_for_device(dma_dev, virt_to_phys(pent), PT_SIZE, DMA_TO_DEVICE);
 				sunxi_tlb_invalid(iova_start,
-							(u32)IOMMU_PD_MASK);
+						(u32)IOMMU_PD_MASK);
 				dma_sync_single_for_cpu(dma_dev, virt_to_phys(dent), sizeof(*dent), DMA_TO_DEVICE);
 				*dent = 0;
 				dma_sync_single_for_device(dma_dev, virt_to_phys(dent), sizeof(*dent), DMA_TO_DEVICE);
 				sunxi_ptw_cache_invalid(iova_start);
-				sunxi_free_iopte(pent);
+				sunxi_free_iopte(pent_page);
 			}
 		}
 	}
@@ -947,6 +960,7 @@ static void sunxi_iommu_domain_free(struct iommu_domain *domain)
 		dent = sunxi_domain->pgtable + i;
 		iova = i << IOMMU_PD_SHIFT;
 		if (IS_VALID(*dent)) {
+			u32 *pent_page = iopte_page(dent);
 			pent = iopte_offset(dent, iova);
 			dma_sync_single_for_cpu(dma_dev, virt_to_phys(pent), PT_SIZE, DMA_TO_DEVICE);
 			memset(pent, 0, PT_SIZE);
@@ -954,7 +968,7 @@ static void sunxi_iommu_domain_free(struct iommu_domain *domain)
 			dma_sync_single_for_cpu(dma_dev, virt_to_phys(dent), PT_SIZE, DMA_TO_DEVICE);
 			*dent = 0;
 			dma_sync_single_for_device(dma_dev, virt_to_phys(dent), sizeof(*dent), DMA_TO_DEVICE);
-			sunxi_free_iopte(pent);
+			sunxi_free_iopte(pent_page);
 		}
 	}
 	sunxi_tlb_flush(global_iommu_dev);
