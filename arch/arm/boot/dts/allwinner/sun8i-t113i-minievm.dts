@@ -235,6 +235,7 @@
 
 &de {
     status = "okay";
+    iommus = <&iommu 2 1>;
 };
 
 &tcon_top {
@@ -297,7 +298,28 @@
 };
 
 &{/soc} {
-	msgbox: msgbox@3003000 {
+    r_lradc: lradc@2009800 {
+        compatible = "allwinner,sun50i-r329-lradc";
+        reg = <0x02009800 0x400>;
+        interrupts = <GIC_SPI 61 IRQ_TYPE_LEVEL_HIGH>;
+        clocks = <&ccu CLK_BUS_LRADC>;
+        clock-names = "mclk";
+        resets = <&ccu RST_BUS_LRADC>;
+        #io-channel-cells = <1>;
+        vref-supply = <&reg_3v3>;
+        status = "okay";
+        wakeup-source;
+
+        button {
+            label = "LRADC Key";
+            channel = <0>;
+            /* voltage is in microvolts per binding */
+            voltage = <210000>;
+            linux,code = <148>; /* KEY_PROG1 */
+        };
+    };
+
+    msgbox: msgbox@3003000 {
 		compatible = "allwinner,sun8iw20-msgbox";
 		#mbox-cells = <1>;
 		reg = <0x03003000 0x1000>,

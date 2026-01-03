@@ -105,10 +105,49 @@ struct sun4i_lradc_data {
 	u32 vref;
 };
 
+static void sun4i_lradc_handle_data_irq(struct sun4i_lradc_data *lradc)
+{
+	u32 i, val, voltage, diff;
+	u32 keycode = 0;
+	u32 closest = 0xffffffff;
+	u32 second = 0xffffffff;
+	u32 threshold;
+
+	val = readl(lradc->base + LRADC_DATA0) & 0x3f;
+	voltage = val * lradc->vref / 63;
+
+	for (i = 0; i < lradc->chan0_map_count; i++) {
+		diff = abs(lradc->chan0_map[i].voltage - voltage);
+		if (diff < closest) {
+			second = closest;
+			closest = diff;
+			keycode = lradc->chan0_map[i].keycode;
+		} else if (diff < second) {
+			second = diff;
+		}
+	}
+
+	if (second != 0xffffffff)
+		threshold = min(second / 2, lradc->vref / 8);
+	else
+		threshold = lradc->vref / 8;
+
+	if (closest <= threshold) {
+		if (lradc->chan0_keycode == 0) {
+			lradc->chan0_keycode = keycode;
+			input_report_key(lradc->input, keycode, 1);
+		}
+	} else if (lradc->chan0_keycode != 0) {
+		input_report_key(lradc->input, lradc->chan0_keycode, 0);
+		lradc->chan0_keycode = 0;
+	}
+}
+
 static irqreturn_t sun4i_lradc_irq(int irq, void *dev_id)
 {
 	struct sun4i_lradc_data *lradc = dev_id;
 	u32 i, ints, val, voltage, diff, keycode = 0, closest = 0xffffffff;
+	bool reported = false;
 
 	ints  = readl(lradc->base + LRADC_INTS);
 
@@ -120,6 +159,7 @@ static irqreturn_t sun4i_lradc_irq(int irq, void *dev_id)
 	if (ints & CHAN0_KEYUP_IRQ) {
 		input_report_key(lradc->input, lradc->chan0_keycode, 0);
 		lradc->chan0_keycode = 0;
+		reported = true;
 	}
 
 	if ((ints & CHAN0_KEYDOWN_IRQ) && lradc->chan0_keycode == 0) {
@@ -136,9 +176,17 @@ static irqreturn_t sun4i_lradc_irq(int irq, void *dev_id)
 
 		lradc->chan0_keycode = keycode;
 		input_report_key(lradc->input, lradc->chan0_keycode, 1);
+		reported = true;
 	}
 
-	input_sync(lradc->input);
+	if ((ints & CHAN0_DATA_IRQ) &&
+	    !(ints & (CHAN0_KEYDOWN_IRQ | CHAN0_KEYUP_IRQ))) {
+		sun4i_lradc_handle_data_irq(lradc);
+		reported = true;
+	}
+
+	if (reported)
+		input_sync(lradc->input);
 
 	writel(ints, lradc->base + LRADC_INTS);
 
@@ -172,7 +220,8 @@ static int sun4i_lradc_open(struct input_dev *dev)
 	writel(FIRST_CONVERT_DLY(2) | LEVELA_B_CNT(1) | HOLD_EN(1) |
 		SAMPLE_RATE(0) | ENABLE(1), lradc->base + LRADC_CTRL);
 
-	writel(CHAN0_KEYUP_IRQ | CHAN0_KEYDOWN_IRQ, lradc->base + LRADC_INTC);
+	writel(CHAN0_KEYUP_IRQ | CHAN0_KEYDOWN_IRQ | CHAN0_DATA_IRQ,
+	       lradc->base + LRADC_INTC);
 
 	return 0;
 

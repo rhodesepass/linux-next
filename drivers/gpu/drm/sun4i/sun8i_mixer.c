@@ -9,6 +9,7 @@
 
 #include <linux/component.h>
 #include <linux/dma-mapping.h>
+#include <linux/iommu.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
@@ -500,6 +501,7 @@ static int sun8i_mixer_bind(struct device *dev, struct device *master,
 	struct platform_device *pdev = to_platform_device(dev);
 	struct drm_device *drm = data;
 	struct sun4i_drv *drv = drm->dev_private;
+	static bool iommu_logged;
 	struct sun8i_mixer *mixer;
 	void __iomem *regs;
 	int i, ret;
@@ -535,6 +537,16 @@ static int sun8i_mixer_bind(struct device *dev, struct device *master,
 		ret = of_dma_configure(drm->dev, dev->of_node, true);
 		if (ret)
 			return ret;
+
+		if (!iommu_logged) {
+			if (device_iommu_mapped(drm->dev))
+				dev_info(drm->dev,
+					 "display engine using IOMMU-backed non-contiguous GEM allocations\n");
+			else
+				dev_info(drm->dev,
+					 "display engine using contiguous (CMA) GEM allocations\n");
+			iommu_logged = true;
+		}
 	}
 
 	/*
