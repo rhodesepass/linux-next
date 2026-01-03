@@ -538,7 +538,27 @@ static int lt8912_bridge_connector_init(struct drm_bridge *bridge)
 	connector->dpms = DRM_MODE_DPMS_OFF;
 	drm_connector_attach_encoder(connector, bridge->encoder);
 
+	/*
+	 * The lt8912 I2C device (and therefore this bridge/connector) is
+	 * probed after the sun4i DRM device has already been registered.
+	 * Static connectors created before drm_dev_register() are
+	 * registered automatically by the core, but late (dynamic) ones are
+	 * not.  Without an explicit registration here user‑space cannot look
+	 * the connector up through DRM_IOCTL_MODE_GETCONNECTOR, which is why
+	 * modetest and kmssink report “Cannot find any crtc or sizes /
+	 * could not get connector … ENOENT”.  Register the connector
+	 * explicitly so it shows up in sysfs (/sys/class/drm/card*-*) and is
+	 * discoverable through KMS ioctls.
+	 */
+	ret = drm_connector_register(connector);
+	if (ret)
+		goto err_attach;
+
 exit:
+	return ret;
+
+err_attach:
+	drm_connector_cleanup(connector);
 	return ret;
 }
 
@@ -804,6 +824,7 @@ static void lt8912_remove(struct i2c_client *client)
 {
 	struct lt8912 *lt = i2c_get_clientdata(client);
 
+	drm_connector_unregister(&lt->connector);
 	drm_bridge_remove(&lt->bridge);
 	lt8912_free_i2c(lt);
 	lt8912_put_dt(lt);
