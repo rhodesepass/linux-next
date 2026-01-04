@@ -612,7 +612,6 @@ static void cedrus_stop_streaming(struct vb2_queue *vq)
 	struct v4l2_m2m_dev *m2m_dev = ctx->is_enc ?
 					  dev->m2m_dev_enc : dev->m2m_dev_dec;
 	struct v4l2_m2m_ctx *m2m_ctx = ctx->fh.m2m_ctx;
-	struct vb2_v4l2_buffer *src, *dst;
 
 	/* Stop watchdog so it doesn't race with our abort/error completion. */
 	cancel_delayed_work_sync(&dev->watchdog_work);
@@ -625,13 +624,8 @@ static void cedrus_stop_streaming(struct vb2_queue *vq)
 
 	/* Force-complete any in-flight transaction. */
 	if (v4l2_m2m_get_curr_priv(m2m_dev) == ctx) {
-		src = v4l2_m2m_src_buf_remove(m2m_ctx);
-		dst = v4l2_m2m_dst_buf_remove(m2m_ctx);
-		if (src)
-			v4l2_m2m_buf_done(src, VB2_BUF_STATE_ERROR);
-		if (dst)
-			v4l2_m2m_buf_done(dst, VB2_BUF_STATE_ERROR);
-		v4l2_m2m_job_finish(m2m_dev, m2m_ctx);
+		v4l2_m2m_buf_done_and_job_finish(m2m_dev, m2m_ctx,
+						 VB2_BUF_STATE_ERROR);
 	}
 
 	/* Reset VE to a clean state for the next stream. */
