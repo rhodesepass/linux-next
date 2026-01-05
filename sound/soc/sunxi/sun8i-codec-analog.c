@@ -732,6 +732,15 @@ static const struct sun8i_codec_analog_quirks sun8i_v3s_quirks = {
 	.has_hmic	= true,
 };
 
+static const struct sun8i_codec_analog_quirks sun20i_d1_quirks = {
+	.has_headphone	= true,
+	.has_hmic	= true,
+	.has_linein	= true,
+	.has_lineout	= true,
+	.has_mbias	= true,
+	.has_mic2	= true,
+};
+
 static int sun8i_codec_analog_cmpnt_probe(struct snd_soc_component *cmpnt)
 {
 	struct device *dev = cmpnt->dev;
@@ -811,6 +820,10 @@ static const struct of_device_id sun8i_codec_analog_of_match[] = {
 	{
 		.compatible = "allwinner,sun8i-v3s-codec-analog",
 		.data = &sun8i_v3s_quirks,
+	},
+	{
+		.compatible = "allwinner,sun20i-d1-codec-analog",
+		.data = &sun20i_d1_quirks,
 	},
 	{}
 };

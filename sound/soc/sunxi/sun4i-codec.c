@@ -2273,15 +2273,12 @@ static const struct snd_soc_dapm_route suniv_codec_card_routes[] = {
 
 static const struct snd_soc_dapm_route sun20i_d1_codec_card_routes[] = {
 	/* ADC Routes */
-	{ "ADC1", NULL, "ADC Enable" },
-	{ "ADC2", NULL, "ADC Enable" },
-	{ "ADC3", NULL, "ADC Enable" },
-	{ "ADC1", NULL, "ADC1 CH Enable" },
-	{ "ADC2", NULL, "ADC2 CH Enable" },
-	{ "ADC3", NULL, "ADC3 CH Enable" },
-	{ "Codec Capture", NULL, "ADC1" },
-	{ "Codec Capture", NULL, "ADC2" },
-	{ "Codec Capture", NULL, "ADC3" },
+	{ "Left ADC", NULL, "ADC Enable" },
+	{ "Right ADC", NULL, "ADC Enable" },
+	{ "Left ADC", NULL, "ADC1 CH Enable" },
+	{ "Right ADC", NULL, "ADC2 CH Enable" },
+	{ "Codec Capture", NULL, "Left ADC" },
+	{ "Codec Capture", NULL, "Right ADC" },
 
 	/* DAC Routes */
 	{ "Left DAC", NULL, "DAC Enable" },
