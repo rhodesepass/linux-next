@@ -147,7 +147,9 @@
 		allwinner,codec-analog-controls = <&codec_analog>;
 		allwinner,audio-routing =
 			"Headphone", "HP",
+			"MIC3", "Headset Mic",
 			"Headset Mic", "MBIAS",
+			"MIC3", "Mic",
 			"Mic", "MBIAS",
 			"Line In", "LINEIN";
 		status = "okay";
