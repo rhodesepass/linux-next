@@ -462,6 +462,29 @@ static void sun4i_codec_stop_playback(struct sun4i_codec *scodec)
 
 static void sun4i_codec_start_capture(struct sun4i_codec *scodec)
 {
+	/*
+	 * For D1, we need to manually enable:
+	 * 1. ADC EN_AD bit (bit 28 of ADC_FIFOC) - global ADC enable
+	 * 2. ADC1/2/3 channel enable bits (bits 0-2 of ADC_DIG_CTRL)
+	 * otherwise ADC won't produce data.
+	 * These are typically done by DAPM via "ADC Enable" and
+	 * "ADC1/2/3 CH Enable" widgets, but we ensure they're set here.
+	 */
+	if (device_is_compatible(scodec->dev, "allwinner,sun20i-d1-codec")) {
+		u32 adc_dig_ctrl;
+
+		/* Enable ADC global */
+		regmap_field_set_bits(scodec->reg_adc_fifoc,
+				      BIT(SUN20I_D1_CODEC_ADC_FIFOC_EN_AD));
+
+		/* Enable ADC1, ADC2, and ADC3 channels */
+		regmap_read(scodec->regmap, SUN20I_D1_CODEC_ADC_DIG_CTRL, &adc_dig_ctrl);
+		adc_dig_ctrl |= BIT(SUN20I_D1_CODEC_ADC_DIG_CTRL_ADC1_CH_EN);
+		adc_dig_ctrl |= BIT(SUN20I_D1_CODEC_ADC_DIG_CTRL_ADC2_CH_EN);
+		adc_dig_ctrl |= BIT(SUN20I_D1_CODEC_ADC_DIG_CTRL_ADC3_CH_EN);
+		regmap_write(scodec->regmap, SUN20I_D1_CODEC_ADC_DIG_CTRL, adc_dig_ctrl);
+	}
+
 	/* Enable ADC DRQ */
 	regmap_field_set_bits(scodec->reg_adc_fifoc,
 			      BIT(scodec->quirks->adc_drq_en));
@@ -473,7 +496,23 @@ static void sun4i_codec_stop_capture(struct sun4i_codec *scodec)
 	/* Disable ADC DRQ */
 	regmap_field_clear_bits(scodec->reg_adc_fifoc,
 				BIT(scodec->quirks->adc_drq_en));
-				BIT(scodec->quirks->adc_drq_en));
+
+	/*
+	 * For D1, also disable ADC EN_AD bit and ADC channel enables
+	 */
+	if (device_is_compatible(scodec->dev, "allwinner,sun20i-d1-codec")) {
+		u32 adc_dig_ctrl;
+
+		/* Disable ADC1, ADC2, and ADC3 channels */
+		regmap_read(scodec->regmap, SUN20I_D1_CODEC_ADC_DIG_CTRL, &adc_dig_ctrl);
+		adc_dig_ctrl &= ~BIT(SUN20I_D1_CODEC_ADC_DIG_CTRL_ADC1_CH_EN);
+		adc_dig_ctrl &= ~BIT(SUN20I_D1_CODEC_ADC_DIG_CTRL_ADC2_CH_EN);
+		adc_dig_ctrl &= ~BIT(SUN20I_D1_CODEC_ADC_DIG_CTRL_ADC3_CH_EN);
+		regmap_write(scodec->regmap, SUN20I_D1_CODEC_ADC_DIG_CTRL, adc_dig_ctrl);
+
+		regmap_field_clear_bits(scodec->reg_adc_fifoc,
+				      BIT(SUN20I_D1_CODEC_ADC_FIFOC_EN_AD));
+	}
 }
 
 static int sun4i_codec_trigger(struct snd_pcm_substream *substream, int cmd,
@@ -514,11 +553,9 @@ static int sun4i_codec_prepare_capture(struct snd_pcm_substream *substream,
 	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
 	struct sun4i_codec *scodec = snd_soc_card_get_drvdata(rtd->card);
 
-
 	/* Flush RX FIFO */
 	regmap_field_set_bits(scodec->reg_adc_fifoc,
 				 BIT(SUN4I_CODEC_ADC_FIFOC_FIFO_FLUSH));
-
 
 	/* Set RX FIFO trigger level */
 	regmap_field_update_bits(scodec->reg_adc_fifoc,
@@ -799,6 +836,7 @@ static int sun4i_codec_startup(struct snd_pcm_substream *substream,
 {
 	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
 	struct sun4i_codec *scodec = snd_soc_card_get_drvdata(rtd->card);
+	int ret;
 
 	/*
 	 * Stop issuing DRQ when we have room for less than 16 samples
@@ -809,14 +847,11 @@ static int sun4i_codec_startup(struct snd_pcm_substream *substream,
 
 	if (scodec->clk_module_dac &&
 	    substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
-		return clk_prepare_enable(scodec->clk_module_dac);
+		ret = clk_prepare_enable(scodec->clk_module_dac);
 	else
-		return clk_prepare_enable(scodec->clk_module);
-	if (scodec->clk_module_dac &&
-	    substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
-		return clk_prepare_enable(scodec->clk_module_dac);
-	else
-		return clk_prepare_enable(scodec->clk_module);
+		ret = clk_prepare_enable(scodec->clk_module);
+
+	return ret;
 }
 
 static void sun4i_codec_shutdown(struct snd_pcm_substream *substream,
