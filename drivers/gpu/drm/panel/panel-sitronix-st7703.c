@@ -673,6 +673,218 @@ static const struct st7703_panel_desc gameforcechi_desc = {
 	.init_sequence = gameforcechi_init_sequence,
 };
 
+static void epassnext_panel_init_sequence(struct mipi_dsi_multi_context *dsi_ctx)
+{
+	mipi_dsi_dcs_write_seq_multi(dsi_ctx, ST7703_CMD_SETEXTC,
+					 0xF1, 0x12, 0x83);
+	mipi_dsi_dcs_write_seq_multi(dsi_ctx, ST7703_CMD_SETAPID,
+					 0x00, 0x00, 0x00, 0xDA, 0x80);
+	mipi_dsi_dcs_write_seq_multi(dsi_ctx, ST7703_CMD_SETDISP,
+					 0xC8, 0x12, 0xF0);
+	mipi_dsi_dcs_write_seq_multi(dsi_ctx, ST7703_CMD_SETRGBIF,
+					 0x10, 0x10, 0x28, 0x28, 0x03, 0xFF, 0x00, 0x00,
+					 0x00, 0x00);
+	mipi_dsi_dcs_write_seq_multi(dsi_ctx, ST7703_CMD_SETCYC, 0x80);
+	mipi_dsi_dcs_write_seq_multi(dsi_ctx, ST7703_CMD_SETBGP,
+					 0x0A, 0x0A);
+	mipi_dsi_dcs_write_seq_multi(dsi_ctx, ST7703_CMD_SETVCOM,
+					 0x4B,	// F_VCOM
+					 0x4B); // B_VCOM
+	mipi_dsi_dcs_write_seq_multi(dsi_ctx, ST7703_CMD_SETPOWER_EXT,
+					 0x26, // 0x76 for 3 Power Mode, 0x26 for Power IC Mode
+					 0x22, 0xF0, 0x63);
+	mipi_dsi_dcs_write_seq_multi(dsi_ctx, ST7703_CMD_SETMIPI,
+					 0x32, 0x81, 0x05, 0xf9,
+				     0x0e, 0x0e, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00,
+				     0x00, 0x00, 0x44, 0x25, 0x00, 0x90, 0x0a, 0x00,
+				     0x00, 0x01, 0x4f, 0x01, 0x00, 0x00, 0x37);
+	mipi_dsi_dcs_write_seq_multi(dsi_ctx, ST7703_CMD_SETVDC, 0x47);
+	mipi_dsi_dcs_write_seq_multi(dsi_ctx, ST7703_CMD_UNKNOWN_BF, 0x02, 0x11, 0x00);
+	mipi_dsi_dcs_write_seq_multi(dsi_ctx, ST7703_CMD_SETSCR,
+					 0x73, 0x73, 0x50, 0x50,
+				     0x00, 0x00, 0x12, 0x70, 0x00);
+	mipi_dsi_dcs_write_seq_multi(dsi_ctx, ST7703_CMD_SETPOWER, 0x53, 0x00, 0x32,
+				     0x32, 0x77, 0xf4, 0xff, 0xff, 0xcc, 0xcc, 0x77,
+				     0x77);
+	mipi_dsi_dcs_write_seq_multi(dsi_ctx, ST7703_CMD_SETECO, 0x82, 0x00, 0xbf, 0xff,
+				     0x00, 0xff);
+	mipi_dsi_dcs_write_seq_multi(dsi_ctx, ST7703_CMD_SETIO, 0xb8, 0x00, 0x0a, 0x00,
+				     0x00, 0x00);
+	mipi_dsi_dcs_write_seq_multi(dsi_ctx, ST7703_CMD_SETCABC, 0x10, 0x40, 0x1e,
+				     0x02);
+	mipi_dsi_dcs_write_seq_multi(dsi_ctx, ST7703_CMD_SETPANEL, 0x0b);
+	mipi_dsi_dcs_write_seq_multi(dsi_ctx, ST7703_CMD_SETGAMMA, 0x00, 0x0b, 0x12,
+				     0x25, 0x30, 0x39, 0x42, 0x37, 0x07, 0x0d, 0x0d,
+				     0x11, 0x13, 0x10, 0x12, 0x12, 0x19, 0x00, 0x0b,
+				     0x12, 0x25, 0x30, 0x39, 0x42, 0x37, 0x07, 0x0d,
+				     0x0d, 0x11, 0x13, 0x10, 0x12, 0x12, 0x19);
+	mipi_dsi_dcs_write_seq_multi(dsi_ctx, ST7703_CMD_SETEQ,
+					 0x07, // PNOEQ
+					 0x07, // NNOEQ
+					 0x0b, // PEQGND
+					 0x0b, // NEQGND
+				     0x0b, // PEQVCI
+					 0x0b, // NEQVCI
+					 0x00, // PEQVCI1
+					 0x00, // NEQVCI1
+					 0x00, // VCOM_PULLGND_OFF
+					 0x00, // VCOM_PULLGND_OFF
+					 0xff, // VCOM_IDLE_ON
+					 0x00,
+				     0xc0, // default C0 ESD detect function
+					 0x10);// SLPOPT
+	mipi_dsi_dcs_write_seq_multi(dsi_ctx, ST7703_CMD_SETGIP1,
+					 0xC8,  //1  PANSEL        02/C2    02/C2
+					 0x10,  //2  SHR_0[11:8]   00/10    00/10
+					 0x10,  //3  SHR_0[7:0]    0A/11    0A/11
+					 0x05,  //4  SHR_1[11:8]   05/05    05/15
+					 0x0F,  //5  SHR_1[7:0]    25/0C    29/10
+					 0x80,  //6  SPON[7:0]
+					 0x81,  //7  SPOFF[7:0]
+					 0x12,  //8  SHR0_1[3:0], SHR0_2[3:0]
+					 0x31,  //9  SHR0_3[3:0], SHR1_1[3:0]
+					 0x23,  //10  SHR1_2[3:0], SHR1_3[3:0]
+					 0xAF,  //11  SHP[3:0], SCP[3:0]
+					 0x8d,  //12  CHR[7:0]     0D//8E   0D/8E
+					 0x80,
+					 0x81,
+					 0x7F,  //15  CHP[3:0], CCP[3:0]
+					 0x10,  //16  USER_GIP_GATE[7:0]
+					 0x03,  //17  CGTS_L[21:16] //G17&G18:STV
+					 0x00,  //18  CGTS_L[15:8]
+					 0x19,  //19  CGTS_L[7:0]   //G1:End STV,G4&G5:End STV
+					 0x00,  //20  CGTS_INV_L[21:16]
+					 0x00,  //21  CGTS_INV_L[15:8]
+					 0x00,  //22  CGTS_INV_L[7:0] 
+					 0x03,  //23  CGTS_R[21:16] //G17&G18:STV
+					 0x00,  //24  CGTS_R[15:8] 
+					 0x19,  //25  CGTS_R[7:0]   //G1:End STV,G4&G5:End STV
+					 0x00,  //26  CGTS_INV_R[21:16]
+					 0x00,  //27  CGTS_INV_R[15:8]
+					 0x00,  //28  CGTS_INV_R[7:0]
+					 0x4F,  //29  COS1_L[3:0] ,COS2_L[3:0] //RST_R  ,VDDF_R
+					 0x8A,  //30  COS3_L[3:0] ,COS4_L[3:0] //VDDR_R ,VSTOP2
+					 0xCA,  //31  COS5_L[3:0] ,COS6_L[3:0] //VSTOP4 ,EXCK_R
+					 0xB7,  //32  COS7_L[3:0] ,COS8_L[3:0] //ECK_R  ,CLK16
+					 0x58,  //33  COS9_L[3:0] ,COS10_L[3:0]//CLK14  ,XXX
+					 0x31,  //34  COS11_L[3:0],COS12_L[3:0]//CLK12  ,CLK10
+					 0x75,  //35  COS13_L[3:0],COS14_L[3:0]//CLK8   ,CLK6
+					 0x31,  //36  COS15_L[3:0],COS16_L[3:0]//CLK4   ,CLK2
+					 0x31,  //37  COS17_L[3:0],COS18_L[3:0]//VSTART4,VSTART2     
+					 0x88,  //38  COS19_L[3:0],COS20_L[3:0]//
+					 0x88,  //39  COS21_L[3:0],COS22_L[3:0]//
+					 0x4F,  //40  COS1_R[3:0] ,COS2_R[3:0] //RST_L  ,VDDF_L
+					 0x89,  //41  COS3_R[3:0] ,COS4_R[3:0] //VDDR_L ,VSTOP1
+					 0xBA,  //42  COS5_R[3:0] ,COS6_R[3:0] //VSTOP3 ,EXCK_L
+					 0xB6,  //43  COS7_R[3:0] ,COS8_R[3:0] //ECK_L  ,CLK15
+					 0x48,  //44  COS9_R[3:0] ,COS10_R[3:0]//CLK13  ,XXX
+					 0x20,  //45  COS11_R[3:0],COS12_R[3:0]//CLK11  ,CLK9
+					 0x64,  //46  COS13_R[3:0],COS14_R[3:0]//CLK7   ,CLK5
+					 0x20,  //47  COS15_R[3:0],COS16_R[3:0]//CLK3   ,CLK1
+					 0x20,  //48  COS17_R[3:0],COS18_R[3:0]//VSTART3,VSTART1 
+					 0x88,  //49  COS19_R[3:0],COS20_R[3:0]//
+					 0x88,  //50  COS21_R[3:0],COS22_R[3:0]//
+					 0x00,  //51  TCONOPTION
+					 0x00,  //52  OPTION
+					 0x00,  //53  OTPION
+					 0x00,  //54  OPTION
+					 0x00,  //55  CHR2
+					 0x80,  //56  CON2
+					 0x81,  //57  COFF2
+					 0x00,  //58  CHP2,CCP2
+					 0x00,  //59  CKS 21 20 19 18 17 16
+					 0x00,  //60  CKS 15 14 13 12 11 10 9 8
+					 0x00,  //61  CKS 7~0
+					 0x00,  //62  COFF[7:6]   CON[5:4]    SPOFF[3:2]    SPON[1:0]
+					 0x00); //63  COFF2[7:6]    CON2[5:4]   - - - -
+	mipi_dsi_dcs_write_seq_multi(dsi_ctx, ST7703_CMD_SETGIP2,
+					 0x96,  //1  ys2_sel[1:0]
+					 0x1F,  //2  user_gip_gate1[7:0]
+					 0x01,  //3  ck_all_on_width1[5:0]
+					 0x01,  //4  ck_all_on_width2[5:0]
+					 0x00,  //5  ck_all_on_width3[5:0]
+					 0x00,  //6  ys_flag_period[7:0]
+					 0x03,  //7  ys_2
+					 0x1C,  //8  user_gip_gate1_2[7:0]  
+					 0x43,  //9  ck_all_on_width1_2[5:0]
+					 0x03,  //10 ck_all_on_width2_2[5:0]
+					 0x03,  //11 ck_all_on_width3_2[5:0]
+					 0x00,  //12 ys_flag_period_2[7:0]
+					 0x48,  //13  COS1_L[3:0] ,COS2_L[3:0] //RST_R  ,VDDF_R
+					 0xF2,  //14  COS3_L[3:0] ,COS4_L[3:0] //VDDR_R ,VSTOP2
+					 0x0A,  //15  COS5_L[3:0] ,COS6_L[3:0] //VSTOP4 ,EXCK_R
+					 0xB0,  //16  COS7_L[3:0] ,COS8_L[3:0] //ECK_R  ,CLK16
+					 0x28,  //17  COS9_L[3:0] ,COS10_L[3:0]//CLK14  ,XXX
+					 0x46,  //18  COS11_L[3:0],COS12_L[3:0]//CLK12  ,CLK10
+					 0x02,  //19  COS13_L[3:0],COS14_L[3:0]//CLK8   ,CLK6
+					 0x46,  //20  COS15_L[3:0],COS16_L[3:0]//CLK4   ,CLK2
+					 0x9B,  //21  COS17_L[3:0],COS18_L[3:0]//VSTART4,VSTART2     
+					 0x88,  //22  COS19_L[3:0],COS20_L[3:0]//
+					 0x88,  //23  COS21_L[3:0],COS22_L[3:0]//
+					 0x48,  //24  COS1_R[3:0] ,COS2_R[3:0] //RST_L  ,VDDF_L
+					 0xF3,  //25  COS3_R[3:0] ,COS4_R[3:0] //VDDR_L ,VSTOP1
+					 0x1A,  //26  COS5_R[3:0] ,COS6_R[3:0] //VSTOP3 ,EXCK_L
+					 0xB1,  //27  COS7_R[3:0] ,COS8_R[3:0] //ECK_L  ,CLK15
+					 0x38,  //28  COS9_R[3:0] ,COS10_R[3:0]//CLK13  ,XXX
+					 0x57,  //29  COS11_R[3:0],COS12_R[3:0]//CLK11  ,CLK9
+					 0x13,  //30  COS13_R[3:0],COS14_R[3:0]//CLK7   ,CLK5
+					 0x57,  //21  COS15_R[3:0],COS16_R[3:0]//CLK3   ,CLK1
+					 0xAC,  //32  COS17_R[3:0],COS18_R[3:0]//VSTART3,VSTART1 
+					 0x88,  //33  COS19_R[3:0],COS20_R[3:0]//
+					 0x88,  //34  COS21_R[3:0],COS22_R[3:0]//
+					 0x23,  //35 EQOPT , EQ_SEL
+					 0x10,  //36 EQ_DELAY[7:0]
+					 0x00,  //37 EQ_DELAY_HSYNC [3:0]
+					 0x00,  //38 HSYNC_TO_CL1_CNT9[8]
+					 0x74,  //39 HSYNC_TO_CL1_CNT9[7:0]
+					 0x00,  //40 HIZ_L
+					 0x00,  //41 HIZ_R
+					 0x00,  //42 CKS_GS[21:16]
+					 0x00,  //43 CKS_GS[15:8]
+					 0x00,  //44 CKS_GS[7:0]
+					 0x00,  //45 CK_MSB_EN[21:16]
+					 0x0D,  //46 CK_MSB_EN[15:8]   //CGOUT12,11,9 use CK group2
+					 0x80,  //47 CK_MSB_EN[7:0]    //CGOUT8       use CK group2
+					 0x00,  //48 CK_MSB_EN_GS[21:16]
+					 0xF0,  //49 CK_MSB_EN_GS[15:8]//CGOUT16,15,14,13 use CK group2
+					 0x00,  //50 CK_MSB_EN_GS[7:0]
+					 0x05,  //51 SHR2[11:8] //05,05     05/15
+					 0x04,  //52 SHR2[7:0]  //1A,01     1E/05 
+					 0x12,  //53 SHR2_1[3:0],SHR2_2[3:0]
+					 0x30,  //54 SHR2_3[3:0],XXX
+					 0x70,  //55 SHP1[3:0]
+					 0x80,  //56 SPON1[7:0]
+					 0x81,  //57 SPOFF1[7:0]
+					 0x70,  //58 SHP2[3:0]
+					 0x80,  //59 SPON2[7:0]
+					 0x81,  //60 SPOFF2[7:0]
+					 0x00); //61 SPOFF2[9:8]/SPON2[9:8]/SPOFF1[9:8]/SPON1[9:8]
+	mipi_dsi_dcs_write_seq_multi(dsi_ctx, ST7703_CMD_UNKNOWN_EF, 0xff, 0xff, 0x01);
+}
+
+static const struct drm_display_mode epassnext_panel_mode = {
+	.hdisplay 	= 720,
+	.hsync_start = 720 + 45,
+	.hsync_end 	= 720 + 45 + 4,
+	.htotal 	= 720 + 45 + 4 + 45,
+	.vdisplay 	= 1280,
+	.vsync_start = 1280 + 30,
+	.vsync_end 	= 1280 + 30 + 8,
+	.vtotal 	= 1280 + 30 + 8 + 20,
+	.clock		= 64000,
+	.flags		= DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC,
+	.width_mm	= 71,
+	.height_mm	= 53,
+};
+
+static const struct st7703_panel_desc epassnext_panel_desc = {
+	.mode = &epassnext_panel_mode,
+	.lanes = 3,
+	.mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_SYNC_PULSE,
+	.format = MIPI_DSI_FMT_RGB888,
+	.init_sequence = epassnext_panel_init_sequence,
+};
+
 static int st7703_enable(struct drm_panel *panel)
 {
 	struct st7703 *ctx = panel_to_st7703(panel);
@@ -921,6 +1133,7 @@ static const struct of_device_id st7703_of_match[] = {
 	{ .compatible = "powkiddy,rgb30-panel", .data = &rgb30panel_desc },
 	{ .compatible = "rocktech,jh057n00900", .data = &jh057n00900_panel_desc },
 	{ .compatible = "xingbangda,xbd599", .data = &xbd599_desc },
+	{ .compatible = "rhodesisland,epassnext-panel", .data = &epassnext_panel_desc },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, st7703_of_match);

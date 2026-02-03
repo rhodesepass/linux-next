@@ -121,6 +121,12 @@ static struct clk_hw *sun8i_tcon_top_register_gate(struct device *dev,
 				    bit, 0, lock);
 };
 
+static int bind_new(struct device *dev, struct device *master,
+                               void *data)
+{
+	return 0;
+}
+
 static int sun8i_tcon_top_bind(struct device *dev, struct device *master,
 			       void *data)
 {
@@ -179,7 +185,10 @@ static int sun8i_tcon_top_bind(struct device *dev, struct device *master,
 	 * At least on H6, some registers have some bits set by default
 	 * which may cause issues. Clear them here.
 	 */
-	writel(0, regs + TCON_TOP_PORT_SEL_REG);
+	// T113 TCON Top tinting troubleshooting
+	// John Watts contact at jookia.org
+	// Sat Jun 29 13:58:17 PDT 2024
+	writel(0x20, regs + TCON_TOP_PORT_SEL_REG);
 	writel(0, regs + TCON_TOP_GATE_SRC_REG);
 
 	/*
@@ -251,13 +260,18 @@ static void sun8i_tcon_top_unbind(struct device *dev, struct device *master,
 }
 
 static const struct component_ops sun8i_tcon_top_ops = {
-	.bind	= sun8i_tcon_top_bind,
+	.bind	= bind_new,
 	.unbind	= sun8i_tcon_top_unbind,
 };
 
 static int sun8i_tcon_top_probe(struct platform_device *pdev)
 {
-	return component_add(&pdev->dev, &sun8i_tcon_top_ops);
+	dev_info(&pdev->dev, "%s\n", __func__);
+	component_add(&pdev->dev, &sun8i_tcon_top_ops);
+
+	sun8i_tcon_top_bind(&pdev->dev, NULL, NULL);	
+
+	return 0;
 }
 
 static void sun8i_tcon_top_remove(struct platform_device *pdev)

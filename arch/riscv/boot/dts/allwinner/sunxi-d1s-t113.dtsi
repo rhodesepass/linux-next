@@ -34,6 +34,17 @@
 		#address-cells = <1>;
 		#size-cells = <1>;
 
+		ve: video-codec@1c0e000 {
+			compatible = "allwinner,sun20i-d1-video-engine";
+			reg = <0x1c0e000 0x2000>;
+			interrupts = <SOC_PERIPHERAL_IRQ(66) IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&ccu CLK_BUS_VE>,
+				 <&ccu CLK_VE>,
+				 <&ccu CLK_MBUS_VE>;
+			clock-names = "ahb", "mod", "ram";
+			resets = <&ccu RST_BUS_VE>;
+		};
+
 		pio: pinctrl@2000000 {
 			compatible = "allwinner,sun20i-d1-pinctrl";
 			reg = <0x2000000 0x800>;
@@ -157,6 +168,18 @@
 			};
 
 			/omit-if-no-ref/
+			spi0_hold_pin: spi0-hold-pin {
+				pins = "PC7";
+				function = "spi0";
+			};
+
+			/omit-if-no-ref/
+			spi0_wp_pin: spi0-wp-pin {
+				pins = "PC6";
+				function = "spi0";
+			};
+
+			/omit-if-no-ref/
 			spi1_pins: spi1-pins {
 				pins = "PD10", "PD11", "PD12", "PD13";
 				function = "spi1";
@@ -193,6 +216,18 @@
 			};
 		};
 
+		pwm: pwm@2000c00 {
+			compatible = "allwinner,sun20i-d1-pwm";
+			reg = <0x02000c00 0x400>;
+			clocks = <&ccu CLK_BUS_PWM>,
+				 <&dcxo>,
+				 <&ccu CLK_APB0>;
+			clock-names = "bus", "hosc", "apb";
+			resets = <&ccu RST_BUS_PWM>;
+			status = "disabled";
+			#pwm-cells = <0x3>;
+		};
+
 		ccu: clock-controller@2001000 {
 			compatible = "allwinner,sun20i-d1-ccu";
 			reg = <0x2001000 0x1000>;
@@ -212,6 +247,28 @@
 			interrupts = <SOC_PERIPHERAL_IRQ(57) IRQ_TYPE_LEVEL_HIGH>;
 			status = "disabled";
 			#io-channel-cells = <1>;
+		};
+
+		codec: codec@2030000 {
+			#sound-dai-cells = <0>;
+			compatible = "allwinner,sun20i-d1-codec";
+			reg = <0x02030000 0x300>;
+			interrupts = <SOC_PERIPHERAL_IRQ(25) IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&ccu CLK_BUS_AUDIO>,
+				 <&ccu CLK_AUDIO_ADC>,
+				 <&ccu CLK_AUDIO_DAC>;
+			clock-names = "apb", "adc", "dac";
+			resets = <&ccu RST_BUS_AUDIO>;
+			dmas = <&dma 7>, <&dma 7>;
+			dma-names = "rx", "tx";
+			allwinner,codec-analog-controls = <&codec_analog>;
+			status = "disabled";
+		};
+
+		codec_analog: codec-analog@2030300 {
+			compatible = "allwinner,sun20i-d1-codec-analog";
+			reg = <0x02030300 0xd00>;
+			status = "disabled";
 		};
 
 		dmic: dmic@2031000 {

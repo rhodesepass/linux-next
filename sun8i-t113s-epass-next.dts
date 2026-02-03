@@ -1,0 +1,295 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Copyright (C) 2025 Lukas Schmid <lukas.schmid@netcube.li>
+ */
+
+/dts-v1/;
+#include "sun8i-t113s.dtsi"
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/pwm/pwm.h>
+#include <dt-bindings/input/input.h>
+
+/ {
+	model = "Arknights ePass Next";
+	compatible = "rhodesisland,epass-next", "allwinner,sun8i-t113s";
+
+	aliases {
+		serial3 = &uart3; // Console UART on Card Edge
+	};
+
+	chosen {
+		stdout-path = "serial3:115200n8";
+	};
+
+	memory {
+	    reg = <0x40000000 0x8000000>;
+	};
+
+	reg_vcc3v3: regulator-3v3 {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc-3v3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-always-on;
+	};
+
+	reg_vcc_core: regulator-core {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc-core";
+		regulator-min-microvolt = <900000>;
+		regulator-max-microvolt = <900000>;
+		vin-supply = <&reg_vcc3v3>;
+	};
+
+	backlight: backlight {
+		compatible = "pwm-backlight";
+		pwms = <&pwm 4 50000 0>;
+		brightness-levels = <0 4 8 16 32 64 128 196 220 255>;
+		default-brightness-level = <9>;
+		power-supply = <&reg_vcc3v3>;
+	};
+
+	/*backlight: backlight {
+		compatible = "gpio-backlight";
+		gpios = <&pio 3 20 GPIO_ACTIVE_HIGH>;
+		default-on;
+		status = "okay";
+	};*/
+
+	gpio-keys {
+		compatible = "gpio-keys";
+
+		switch-1 {
+			label = "sw1";
+			linux,code = <BTN_1>;
+			gpios = <&pio 6 6 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+		};
+
+		switch-2 {
+			label = "sw2";
+			linux,code = <BTN_2>;
+			gpios = <&pio 6 7 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+		};
+
+		switch-3 {
+			label = "sw3";
+			linux,code = <BTN_3>;
+			gpios = <&pio 6 8 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+		};
+
+		switch-4 {
+			label = "sw4";
+			linux,code = <BTN_4>;
+			gpios = <&pio 6 9 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+		};
+	};
+};
+
+&cpu0 {
+	cpu-supply = <&reg_vcc_core>;
+};
+
+&cpu1 {
+	cpu-supply = <&reg_vcc_core>;
+};
+
+&dcxo {
+	clock-frequency = <24000000>;
+};
+
+&ehci0 {
+	status = "okay";
+};
+
+&ehci1 {
+	status = "okay";
+};
+
+&ohci0 {
+	status = "okay";
+};
+
+&ohci1 {
+	status = "okay";
+};
+
+&usb_otg {
+	dr_mode = "peripheral";
+	status = "okay";
+};
+
+&usbphy {
+	status = "okay";
+};
+
+&mmc0 {
+	pinctrl-0 = <&mmc0_pins>;
+	pinctrl-names = "default";
+	vmmc-supply = <&reg_vcc3v3>;
+	broken-cd;
+	disable-wp;
+	bus-width = <4>;
+	status = "okay";
+};
+
+&pio {
+	vcc-pb-supply = <&reg_vcc3v3>;
+	vcc-pc-supply = <&reg_vcc3v3>;
+	vcc-pd-supply = <&reg_vcc3v3>;
+	vcc-pe-supply = <&reg_vcc3v3>;
+	vcc-pf-supply = <&reg_vcc3v3>;
+	vcc-pg-supply = <&reg_vcc3v3>;
+
+
+	/omit-if-no-ref/
+	i2c0_pb_pins: i2c2-pd-pins {
+		pins = "PB2", "PB3";
+		function = "i2c0";
+	};
+
+	pwm_pin: pwm-pin {
+		pins = "PD20";
+		function = "pwm4";
+	};
+};
+
+&i2c0 {
+	pinctrl-0 = <&i2c0_pb_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+
+	axp209: pmic@34 {
+		reg = <0x34>;
+		interrupt-parent = <&pio>;
+		interrupts = <1 4 IRQ_TYPE_EDGE_FALLING>; /* PB4 */
+	};
+};
+
+#include "axp209.dtsi"
+
+&reg_dcdc2 {
+	regulator-min-microvolt = <1350000>;
+	regulator-max-microvolt = <1350000>;
+	regulator-always-on;
+};
+
+&reg_dcdc3 {
+	regulator-min-microvolt = <3300000>;
+	regulator-max-microvolt = <3300000>;
+	regulator-always-on;
+};
+
+&de {
+	status = "okay";
+};
+
+&tcon_lcd0 {
+	status = "okay";
+};
+
+&pwm {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pwm_pin>;
+	status = "okay";
+};
+
+&dsi {
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	status = "okay";
+
+	pinctrl-0 = <&dsi_4lane_pins>;
+	pinctrl-names = "default";
+
+	panel {
+	    compatible = "rhodesisland,epassnext-panel";
+	    reg = <0>;
+		backlight = <&backlight>;
+		iovcc-supply = <&reg_vcc3v3>;
+		reset-gpios = <&pio 3 21 GPIO_ACTIVE_LOW>; /* PD21 */
+		rotation = <0>;
+		vcc-supply = <&reg_vcc3v3>;
+	};
+};
+
+&dphy {
+	status = "okay";
+};
+
+&wdt {
+	status = "okay";
+};
+
+&codec {
+ 	allwinner,audio-routing = "Headphone", "HP";
+	status = "okay";
+};
+
+&codec_analog {
+	status = "okay";
+};
+
+&spi0 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	pinctrl-0 = <&spi0_pins>, <&spi0_hold_pin>, <&spi0_wp_pin>;
+	pinctrl-names = "default";
+	cs-gpios = <0>;
+	status = "okay";
+
+	spi-nand@0 {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		compatible = "spi-nand";
+		reg = <0>;
+		spi-max-frequency = <100000000>;
+		status = "okay";
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "u-boot";
+				reg = <0x000000 0x100000>;
+				read-only;
+			};
+
+			partition@1 {
+				label = "dtb";
+				reg = <0x100000 0x20000>;
+				read-only;
+			};
+
+			partition@2 {
+				label = "kernel";
+				reg = <0x120000 0x500000>;
+				read-only;
+			};
+
+			partition@3 {
+				label = "rootfs";
+				reg = <0x620000 0x79E0000>;
+			};
+		};
+	};
+};
+
+&spi1 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	pinctrl-0 = <&spi1_pins>;
+	pinctrl-names = "default";
+	cs-gpios = <0>;
+	status = "disabled";
+};
+
+&uart3 {
+	pinctrl-0 = <&uart3_pb_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+};

@@ -38,6 +38,17 @@ config SND_SUN50I_CODEC_ANALOG
 	  Say Y or M if you want to add support for the analog controls for
 	  the codec embedded in Allwinner A64 SoC.
 
+config SND_SUN20I_D1_CODEC_ANALOG
+	tristate "Allwinner D1 Codec Analog Controls Support"
+	depends on ARCH_SUNXI || COMPILE_TEST
+	select REGMAP_MMIO
+	help
+	  This option enables the analog controls part of the internal audio
+	  codec for Allwinner D1/T113s SoCs family.
+
+	  Say Y or M if you want to add support for the analog part of
+	  the D1/T113s audio codec.
+
 config SND_SUN4I_I2S
 	tristate "Allwinner A10 I2S Support"
 	select SND_SOC_GENERIC_DMAENGINE_PCM

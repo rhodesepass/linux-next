@@ -460,7 +460,12 @@ static void sun6i_dsi_setup_inst_loop(struct sun6i_dsi *dsi,
 		u32 hsync_porch = (mode->htotal - mode->hdisplay) * 150;
 
 		delay = (hsync_porch / ((mode->clock / 1000) * 8));
-		delay -= 50;
+		if (delay >= 50) {
+			delay -= 50;
+		}
+		else {
+			delay = 0;
+		}
 	}
 
 	regmap_write(dsi->regs, SUN6I_DSI_INST_LOOP_SEL_REG,
