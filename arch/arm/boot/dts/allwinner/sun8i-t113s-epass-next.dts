@@ -21,6 +21,7 @@
 
 	chosen {
 		stdout-path = "serial3:115200n8";
+		bootargs = "mem=128M ubi.mtd=3 rootfstype=ubifs root=ubi0:rootfs rw rootwait debug loglevel=8";
 	};
 
 	memory {
@@ -85,6 +86,15 @@
 			gpios = <&pio 6 9 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
 		};
 	};
+
+	/* board wide 5V supply directly from the USB-C socket */
+	reg_vcc5v: regulator-5v {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc-5v";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		regulator-always-on;
+	};
 };
 
 &cpu0 {
@@ -100,7 +110,7 @@
 };
 
 &ehci0 {
-	status = "okay";
+	status = "disabled";
 };
 
 &ehci1 {
@@ -108,7 +118,7 @@
 };
 
 &ohci0 {
-	status = "okay";
+	status = "disabled";
 };
 
 &ohci1 {
@@ -121,6 +131,8 @@
 };
 
 &usbphy {
+	usb0_vbus-supply = <&reg_vcc5v>;
+	usb1_vbus-supply = <&reg_vcc5v>;
 	status = "okay";
 };
 
@@ -254,26 +266,26 @@
 			#size-cells = <1>;
 
 			partition@0 {
-				label = "u-boot";
-				reg = <0x000000 0x100000>;
+				label = "awboot";
+				reg = <0x0 0x40000>;	/* 256K */
 				read-only;
 			};
 
-			partition@1 {
-				label = "dtb";
-				reg = <0x100000 0x20000>;
-				read-only;
+			partition@40000 {
+					label = "dtb";
+					reg = <0x40000 0x40000>;  /* 256k */
+					read-only;
 			};
 
-			partition@2 {
-				label = "kernel";
-				reg = <0x120000 0x500000>;
-				read-only;
+			partition@80000 {
+					label = "kernel";
+					reg = <0x80000 0x780000>;  /* 7.5MB */
+					read-only;
 			};
 
-			partition@3 {
-				label = "rootfs";
-				reg = <0x620000 0x79E0000>;
+			partition@800000 {
+					label = "rootfs";
+					reg = <0x800000 0x7800000>;
 			};
 		};
 	};
