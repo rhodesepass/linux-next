@@ -22,6 +22,7 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/nvmem-consumer.h>
 #include <linux/of.h>
 #include <linux/phy/phy.h>
 #include <linux/phy/phy-sun4i-usb.h>
@@ -39,10 +40,12 @@
 #define REG_PHYTUNE			0x0c
 #define REG_PHYCTL_A33			0x10
 #define REG_PHY_OTGCTL			0x20
+#define REG_PHYSTATUS			0x24	/* New PHY read data */
 
 #define REG_HCI_PHY_CTL			0x10
 
 #define PHYCTL_DATA			BIT(7)
+#define PHYCTL_NEW_PHY_MODE		BIT(1)	/* New PHY register protocol */
 
 #define OTGCTL_ROUTE_MUSB		BIT(0)
 
@@ -79,6 +82,8 @@
 /* A83T specific control bits for PHY0 */
 #define PHY_CTL_VBUSVLDEXT		BIT(5)
 #define PHY_CTL_SIDDQ			BIT(3)
+// clear for normal operation , as per BSP code.
+#define PHY_CTL_LOOPBACKENB		BIT(7)
 #define PHY_CTL_H3_SIDDQ		BIT(1)
 
 /* A83T specific control bits for PHY2 HSIC */
@@ -86,6 +91,17 @@
 #define SUNXI_HSIC_CONNECT_DET		BIT(17)
 #define SUNXI_HSIC_CONNECT_INT		BIT(16)
 #define SUNXI_HSIC			BIT(1)
+
+/* 
+ * New PHY efuse (SID) layout for USB PHY calibration 
+ * which is present so far on D1 and t113 SoCs. 
+ */
+#define SUNXI_USB_PHY_EFUSE_OFFSET		0x18
+#define SUNXI_USB_PHY_EFUSE_ADJUST	BIT(16)
+#define SUNXI_USB_PHY_EFUSE_MODE	BIT(17)
+#define SUNXI_USB_PHY_EFUSE_RES		(0xf << 18)	/* bits 18-21 */
+#define SUNXI_USB_PHY_EFUSE_COM		(0x7 << 22)	/* bits 22-24, vref mode */
+#define SUNXI_USB_PHY_EFUSE_USB0TX	(0x7 << 22)	/* bits 22-24, iref mode */
 
 #define MAX_PHYS			4
 
@@ -105,11 +121,13 @@ struct sun4i_usb_phy_cfg {
 	bool phy0_dual_route;
 	bool needs_phy2_siddq;
 	bool siddq_in_base;
+	bool has_new_phy;
 	bool poll_vbusen;
 	int missing_phys;
 };
 
 struct sun4i_usb_phy_data {
+	struct device *dev;
 	void __iomem *base;
 	const struct sun4i_usb_phy_cfg *cfg;
 	enum usb_dr_mode dr_mode;
@@ -139,6 +157,9 @@ struct sun4i_usb_phy_data {
 	int id_det;
 	int vbus_det;
 	struct delayed_work detect;
+#if IS_ENABLED(CONFIG_NVMEM)
+	struct nvmem_device *nvmem;	
+#endif
 };
 
 #define to_sun4i_usb_phy_data(phy) \
@@ -224,6 +245,173 @@ static void sun4i_usb_phy_write(struct sun4i_usb_phy *phy, u32 addr, u32 data,
 	}
 
 	spin_unlock_irqrestore(&phy_data->reg_lock, flags);
+}
+
+/*
+ * New PHY register protocol: PHYCTL bit1 enables new mode,
+ * address in PHYCTL+1, data bit in PHYCTL bit7, pulse bit0 for write;
+ * read result from REG_PHYSTATUS bit0.
+ */
+static void sun4i_usb_new_phy_tp_write(struct sun4i_usb_phy *phy, u32 addr,
+					u32 data, int len)
+{
+	struct sun4i_usb_phy_data *phy_data = to_sun4i_usb_phy_data(phy);
+	void __iomem *phyctl = phy_data->base + phy_data->cfg->phyctl_offset;
+	unsigned long flags;
+	u8 temp;
+	u32 dtmp = data;
+	int j;
+
+	spin_lock_irqsave(&phy_data->reg_lock, flags);
+
+	for (j = 0; j < len; j++) {
+		temp = readb(phyctl);
+		temp |= PHYCTL_NEW_PHY_MODE;
+		writeb(temp, phyctl);
+
+		writeb(addr + j, phyctl + 1);
+
+		temp = readb(phyctl);
+		temp &= ~BIT(0);
+		writeb(temp, phyctl);
+
+		temp = readb(phyctl);
+		temp &= ~PHYCTL_DATA;
+		temp |= (dtmp & 1) ? PHYCTL_DATA : 0;
+		writeb(temp, phyctl);
+
+		temp = readb(phyctl);
+		temp |= BIT(0);
+		writeb(temp, phyctl);
+
+		temp = readb(phyctl);
+		temp &= ~BIT(0);
+		writeb(temp, phyctl);
+
+		temp = readb(phyctl);
+		temp &= ~PHYCTL_NEW_PHY_MODE;
+		writeb(temp, phyctl);
+
+		dtmp >>= 1;
+	}
+
+	spin_unlock_irqrestore(&phy_data->reg_lock, flags);
+}
+
+static u32 sun4i_usb_new_phy_tp_read(struct sun4i_usb_phy *phy, u32 addr,
+				      int len)
+{
+	struct sun4i_usb_phy_data *phy_data = to_sun4i_usb_phy_data(phy);
+	void __iomem *phyctl = phy_data->base + phy_data->cfg->phyctl_offset;
+	void __iomem *phystatus = phy_data->base + REG_PHYSTATUS;
+	unsigned long flags;
+	u32 ret = 0;
+	u8 temp;
+	int j;
+
+	spin_lock_irqsave(&phy_data->reg_lock, flags);
+
+	temp = readb(phyctl);
+	temp |= PHYCTL_NEW_PHY_MODE;
+	writeb(temp, phyctl);
+
+	for (j = len; j > 0; j--) {
+		writeb(addr + j - 1, phyctl + 1);
+		udelay(100);
+		temp = readb(phystatus);
+		ret = (ret << 1) | (temp & 1);
+	}
+
+	temp = readb(phyctl);
+	temp &= ~PHYCTL_NEW_PHY_MODE;
+	writeb(temp, phyctl);
+
+	spin_unlock_irqrestore(&phy_data->reg_lock, flags);
+
+	return ret;
+}
+
+/* New PHY resistance calibration */
+static void sun4i_usb_new_phy_res_cal(struct sun4i_usb_phy *phy)
+{
+	struct sun4i_usb_phy_data *phy_data = to_sun4i_usb_phy_data(phy);
+	int value;
+
+	sun4i_usb_new_phy_tp_write(phy, 0x43, 0, 1);
+	sun4i_usb_new_phy_tp_write(phy, 0x41, 0, 1);
+	sun4i_usb_new_phy_tp_write(phy, 0x40, 0, 1);
+	sun4i_usb_new_phy_tp_write(phy, 0x40, 1, 1);
+	msleep(1);
+	sun4i_usb_new_phy_tp_write(phy, 0x41, 1, 1);
+
+	{
+		int timeout = 1000;
+
+		while (timeout--) {
+			if (sun4i_usb_new_phy_tp_read(phy, 0x42, 1))
+				break;
+			udelay(1);
+		}
+		if (timeout < 0)
+			dev_warn(phy_data->dev, "USB PHY res_cal 0x42 timeout\n");
+	}
+
+	value = sun4i_usb_new_phy_tp_read(phy, 0x49, 4);
+	dev_dbg(phy_data->dev, "USB PHY res_cal 0x49 -> 0x44: 0x%x\n", value);
+	sun4i_usb_new_phy_tp_write(phy, 0x44, value, 4);
+	sun4i_usb_new_phy_tp_write(phy, 0x41, 0, 1);
+	sun4i_usb_new_phy_tp_write(phy, 0x40, 0, 1);
+	sun4i_usb_new_phy_tp_write(phy, 0x43, 1, 1);
+}
+
+static void sun4i_usb_new_phy_init(struct sun4i_usb_phy_data *data)
+{
+	struct sun4i_usb_phy *phy0 = &data->phys[0];
+	u32 efuse_val = 0;
+	int value;
+	void __iomem *phyctl = data->base + data->cfg->phyctl_offset;
+
+#if IS_ENABLED(CONFIG_NVMEM)
+	if (data->nvmem) {
+		int ret = nvmem_device_read(data->nvmem, SUNXI_USB_PHY_EFUSE_OFFSET,
+					    4, &efuse_val);
+		if (ret == 4)
+			dev_dbg(data->dev, "USB PHY efuse: 0x%x\n", efuse_val);
+		else
+			efuse_val = 0;
+	}
+#endif
+	sun4i_usb_new_phy_tp_write(phy0, 0x1c, 0, 3);
+
+
+	if (efuse_val & SUNXI_USB_PHY_EFUSE_ADJUST) {
+		if (efuse_val & SUNXI_USB_PHY_EFUSE_MODE) {
+			/* iref mode */
+			sun4i_usb_new_phy_tp_write(phy0, 0x60, 1, 1);
+			value = (efuse_val & SUNXI_USB_PHY_EFUSE_USB0TX) >> 22;
+			sun4i_usb_new_phy_tp_write(phy0, 0x61, value, 3);
+			value = (efuse_val & SUNXI_USB_PHY_EFUSE_RES) >> 18;
+			sun4i_usb_new_phy_tp_write(phy0, 0x44, value, 4);
+		} else {
+			/* vref mode */
+			sun4i_usb_new_phy_tp_write(phy0, 0x60, 0, 1);
+			value = (efuse_val & SUNXI_USB_PHY_EFUSE_RES) >> 18;
+			sun4i_usb_new_phy_tp_write(phy0, 0x44, value, 4);
+			value = (efuse_val & SUNXI_USB_PHY_EFUSE_COM) >> 22;
+			sun4i_usb_new_phy_tp_write(phy0, 0x36, value, 3);
+
+		}
+	}
+
+
+	/* Resistance calibration (BSP: usbc_new_phy_res_cal) */
+	// BSP code doesn't call this function, we call it here.
+	sun4i_usb_new_phy_res_cal(phy0);
+
+	/* Leave PHY register access mode and ensure LOOPBACKENB is clear */
+	u32 ctl = readl(phyctl);
+	ctl &= ~(PHY_CTL_LOOPBACKENB | PHYCTL_NEW_PHY_MODE);
+	writel(ctl, phyctl);
 }
 
 static void sun4i_usb_phy_passby(struct sun4i_usb_phy *phy, int enable)
@@ -329,10 +517,17 @@ static int sun4i_usb_phy_init(struct phy *_phy)
 
 	if (data->cfg->siddq_in_base) {
 		if (phy->index == 0) {
-			val = readl(data->base + data->cfg->phyctl_offset);
+			void __iomem *phyctl = data->base + data->cfg->phyctl_offset;
+
+			val = readl(phyctl);
 			val |= PHY_CTL_VBUSVLDEXT;
 			val &= ~PHY_CTL_SIDDQ;
-			writel(val, data->base + data->cfg->phyctl_offset);
+			/* AW clear this bit for New PHY Socs...? */
+			if (data->cfg->has_new_phy)
+				val &= ~PHY_CTL_LOOPBACKENB;
+			writel(val, phyctl);
+			if (data->cfg->has_new_phy)
+				sun4i_usb_new_phy_init(data);
 		}
 	} else {
 		/* Enable USB 45 Ohm resistor calibration */
@@ -700,6 +895,12 @@ static void sun4i_usb_phy_remove(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct sun4i_usb_phy_data *data = dev_get_drvdata(dev);
 
+#if IS_ENABLED(CONFIG_NVMEM)
+	if (data->nvmem) {
+		nvmem_device_put(data->nvmem);
+		data->nvmem = NULL;
+	}
+#endif
 	if (data->vbus_power_nb_registered)
 		power_supply_unreg_notifier(&data->vbus_power_nb);
 	if (data->id_det_irq > 0)
@@ -731,9 +932,21 @@ static int sun4i_usb_phy_probe(struct platform_device *pdev)
 	spin_lock_init(&data->reg_lock);
 	INIT_DELAYED_WORK(&data->detect, sun4i_usb_phy0_id_vbus_det_scan);
 	dev_set_drvdata(dev, data);
+	data->dev = dev;
 	data->cfg = of_device_get_match_data(dev);
 	if (!data->cfg)
 		return -EINVAL;
+
+#if IS_ENABLED(CONFIG_NVMEM) && IS_ENABLED(CONFIG_OF)
+	if (data->cfg->has_new_phy) {
+		dev_dbg(dev, "Getting the SID NVMEM\n");
+		data->nvmem = of_nvmem_device_get(dev->of_node, "sid");
+		if (IS_ERR(data->nvmem)){
+			dev_err(dev, "Couldn't get the SID NVMEM\n");
+			data->nvmem = NULL;
+		}
+	}
+#endif
 
 	data->base = devm_platform_ioremap_resource_byname(pdev, "phy_ctrl");
 	if (IS_ERR(data->base))
@@ -985,6 +1198,7 @@ static const struct sun4i_usb_phy_cfg sun20i_d1_cfg = {
 	.hci_phy_ctl_clear = PHY_CTL_SIDDQ,
 	.phy0_dual_route = true,
 	.siddq_in_base = true,
+	.has_new_phy = true,
 };
 
 static const struct sun4i_usb_phy_cfg sun50i_a64_cfg = {

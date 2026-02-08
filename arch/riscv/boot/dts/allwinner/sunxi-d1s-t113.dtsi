@@ -675,6 +675,8 @@
 			reset-names = "usb0_reset",
 				      "usb1_reset";
 			status = "disabled";
+			nvmem = <&sid>;
+			nvmem-names = "sid";
 			#phy-cells = <1>;
 		};
 
