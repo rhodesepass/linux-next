@@ -25,63 +25,6 @@
 		stdout-path = "serial0:115200n8";
 	};
 
-	reserved-memory {
-		#address-cells = <1>;
-		#size-cells = <1>;
-		ranges;
-
-        c906_fw: c906_fw@41200000 {
-            reg = <0x41200000 0x002AC000>;
-            no-map;
-        };
-
-        vdev0vring0: vdev0vring0@414ac000 {
-            reg = <0x414ac000 0x00002000>;
-            no-map;
-        };
-
-        vdev0vring1: vdev0vring1@414ae000 {
-            reg = <0x414ae000 0x00002000>;
-            no-map;
-        };
-
-        vdev0buffer: vdev0buffer@414b0000 {
-            reg = <0x414b0000 0x00040000>;
-            no-map;
-        };
-
-        c906_guard: c906_guard@414f0000 {
-            reg = <0x414f0000 0x00010000>;
-            no-map;
-        };
-
-        dsp_vring0: dsp-vring0@41100000 {
-            reg = <0x41100000 0x00002000>;
-            no-map;
-        };
-
-        dsp_vring1: dsp-vring1@41102000 {
-            reg = <0x41102000 0x00002000>;
-            no-map;
-        };
-
-        dsp_vdevbuf: dsp-vdevbuf@41104000 {
-            reg = <0x41104000 0x000fc000>;
-            no-map;
-        };
-
-        dsp_sram_reserved: dsp-sram@400000 {
-            /* DSP IRAM/TCM window */
-            reg = <0x00400000 0x00100000>;
-            no-map;
-        };
-
-        dsp_ddr_reserved: dsp-ddr@4fc00000 {
-            reg = <0x4fc00000 0x00400000>;
-            no-map;
-        };
-	};
-
     leds {
         compatible = "gpio-leds";
 
@@ -136,31 +79,6 @@
 		vin-supply = <&reg_3v3>;
 	};
 
-	codec: codec@2030000 {
-		compatible = "allwinner,sun20i-d1-codec";
-		reg = <0x02030000 0x300>;
-		clocks = <&ccu CLK_BUS_AUDIO>, <&ccu CLK_AUDIO_ADC>, <&ccu CLK_AUDIO_DAC>;
-		clock-names = "apb", "adc", "dac";
-		resets = <&ccu RST_BUS_AUDIO>;
-		dmas = <&dma 7>, <&dma 7>;
-		dma-names = "rx", "tx";
-		allwinner,codec-analog-controls = <&codec_analog>;
-		allwinner,audio-routing =
-			"Headphone", "HP",
-			"MIC3", "Headset Mic",
-			"Headset Mic", "MBIAS",
-			"MIC3", "Mic",
-			"Mic", "MBIAS",
-			"Line In", "LINEIN";
-		status = "okay";
-	};
-
-	codec_analog: codec-analog@2030300 {
-		compatible = "allwinner,sun20i-d1-codec-analog";
-		reg = <0x02030300 0x100>;
-		status = "okay";
-	};
-
     reg_usb0_vbus: regulator-usb0-vbus {
         compatible = "regulator-fixed";
         regulator-name = "usb0-vbus";
@@ -201,6 +119,48 @@
             };
         };
     };
+};
+
+&reserved_mem {
+    c906_fw: c906_fw@41200000 {
+        reg = <0x41200000 0x002AC000>;
+        no-map;
+    };
+
+    vdev0vring0: vdev0vring0@414ac000 {
+        reg = <0x414ac000 0x00002000>;
+        no-map;
+    };
+
+    vdev0vring1: vdev0vring1@414ae000 {
+        reg = <0x414ae000 0x00002000>;
+        no-map;
+    };
+
+    vdev0buffer: vdev0buffer@414b0000 {
+        reg = <0x414b0000 0x00040000>;
+        no-map;
+    };
+
+    c906_guard: c906_guard@414f0000 {
+        reg = <0x414f0000 0x00010000>;
+        no-map;
+    };
+};
+
+&codec {
+    allwinner,audio-routing =
+        "Headphone", "HP",
+        "MIC3", "Headset Mic",
+        "Headset Mic", "MBIAS",
+        "MIC3", "Mic",
+        "Mic", "MBIAS",
+        "Line In", "LINEIN";
+    status = "okay";
+};
+
+&codec_analog {
+    status = "okay";
 };
 
 &pio {
@@ -301,7 +261,7 @@
     };
 };
 
-&cedrus {
+&ve {
 	status = "okay";
 	iommus = <&iommu 0 1>;
 };
@@ -344,27 +304,6 @@
         };
     };
 
-    msgbox: msgbox@3003000 {
-		compatible = "allwinner,sun8iw20-msgbox";
-		#mbox-cells = <1>;
-		reg = <0x03003000 0x1000>,
-		      <0x01701000 0x1000>,
-		      <0x0601f000 0x1000>;
-		interrupts = <GIC_SPI 0 IRQ_TYPE_LEVEL_HIGH>,
-			    <GIC_SPI 123 IRQ_TYPE_LEVEL_HIGH>,
-			    <GIC_SPI 130 IRQ_TYPE_LEVEL_HIGH>;
-		clocks = <&ccu CLK_BUS_MSGBOX0>,<&ccu CLK_BUS_MSGBOX1>,
-			 <&ccu CLK_BUS_MSGBOX2>;
-		clock-names = "msgbox0","msgbox1",
-			      "msgbox2";
-		resets = <&ccu RST_BUS_MSGBOX0>,<&ccu RST_BUS_MSGBOX1>,
-			 <&ccu RST_BUS_MSGBOX2>;
-		reset-names = "rst0","rst1",
-			      "rst2";
-		local_id = <0>;
-		status = "okay";
-	};
-
     c906: rproc@6010000 {
         compatible = "allwinner,c906-rproc";
         reg = <0x06010000 0x1000>;
@@ -390,31 +329,14 @@
 		mbox-names = "arm-kick";
 		status = "okay";
 	};
+};
 
-    dsp: rproc@1700000 {
-        compatible = "allwinner,hifi4-rproc";
-        reg = <0x01700000 0x1000>;
-        reg-names = "dsp-cfg";
+&msgbox {
+    status = "okay";
+};
 
-        clocks = <&ccu CLK_DSP>,
-                <&ccu CLK_BUS_DSP_CFG>;
-        clock-names = "core", "bus";
-
-        assigned-clocks = <&ccu CLK_DSP>;
-        assigned-clock-parents = <&ccu CLK_PLL_PERIPH0_2X>;
-        assigned-clock-rates = <600000000>;
-
-        resets = <&ccu RST_DSP>,
-                <&ccu RST_BUS_DSP_CFG>,
-                <&ccu RST_BUS_DSP_DBG>;
-        reset-names = "core", "cfg", "dbg";
-
-        memory-region = <&dsp_sram_reserved &dsp_ddr_reserved &dsp_vring0 &dsp_vring1 &dsp_vdevbuf>;
-        firmware-name = "dsp.elf";
-        mboxes = <&msgbox 0>;
-        mbox-names = "arm-kick";
-        status = "okay";
-    };
+&dsp {
+    status = "okay";
 };
 
 &ehci1 {

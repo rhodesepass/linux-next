@@ -195,7 +195,26 @@
 
 &de {
 	status = "okay";
+	iommus = <&iommu 2 1>;
 };
+
+&mixer0 {
+    status = "okay";
+};
+
+&ve {
+	status = "okay";
+	iommus = <&iommu 0 1>;
+};
+
+&msgbox {
+    status = "okay";
+};
+
+&dsp {
+    status = "okay";
+};
+
 
 &tcon_lcd0 {
 	status = "okay";

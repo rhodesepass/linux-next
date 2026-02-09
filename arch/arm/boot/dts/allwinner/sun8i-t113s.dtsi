@@ -63,6 +63,39 @@
 			     <GIC_SPI 173 IRQ_TYPE_LEVEL_HIGH>;
 		interrupt-affinity = <&cpu0>, <&cpu1>;
 	};
+
+	
+	reserved_mem:reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+        dsp_vring0: dsp-vring0@41100000 {
+            reg = <0x41100000 0x00002000>;
+            no-map;
+        };
+
+        dsp_vring1: dsp-vring1@41102000 {
+            reg = <0x41102000 0x00002000>;
+            no-map;
+        };
+
+        dsp_vdevbuf: dsp-vdevbuf@41104000 {
+            reg = <0x41104000 0x000fc000>;
+            no-map;
+        };
+
+        dsp_sram_reserved: dsp-sram@400000 {
+            /* DSP IRAM/TCM window */
+            reg = <0x00400000 0x00100000>;
+            no-map;
+        };
+
+        dsp_ddr_reserved: dsp-ddr@4fc00000 {
+            reg = <0x4fc00000 0x00400000>;
+            no-map;
+        };
+	};
 };
 
 &{/soc} {
@@ -75,24 +108,50 @@
 		#iommu-cells = <2>;
 		status = "okay";
 	};
-};
 
-&syscon {
-	ve_sram: sram {
-		compatible = "allwinner,sun4i-a10-sram-c1";
-	};
-};
-
-&{/soc} {
-	cedrus: video-codec@1c0e000 {
-		compatible = "allwinner,sun20i-d1-video-engine";
-		reg = <0x01c0e000 0x1000>;
-		interrupts = <SOC_PERIPHERAL_IRQ(66) IRQ_TYPE_LEVEL_HIGH>;
-		clocks = <&ccu CLK_BUS_VE>, <&ccu CLK_VE>,
-			 <&ccu CLK_MBUS_VE>;
-		clock-names = "ahb", "mod", "ram";
-		resets = <&ccu RST_BUS_VE>;
-		allwinner,sram = <&ve_sram 1>;
+	msgbox: msgbox@3003000 {
+		compatible = "allwinner,sun8iw20-msgbox";
+		#mbox-cells = <1>;
+		reg = <0x03003000 0x1000>,
+		      <0x01701000 0x1000>,
+		      <0x0601f000 0x1000>;
+		interrupts = <GIC_SPI 0 IRQ_TYPE_LEVEL_HIGH>,
+			    <GIC_SPI 123 IRQ_TYPE_LEVEL_HIGH>,
+			    <GIC_SPI 130 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&ccu CLK_BUS_MSGBOX0>,<&ccu CLK_BUS_MSGBOX1>,
+			 <&ccu CLK_BUS_MSGBOX2>;
+		clock-names = "msgbox0","msgbox1",
+			      "msgbox2";
+		resets = <&ccu RST_BUS_MSGBOX0>,<&ccu RST_BUS_MSGBOX1>,
+			 <&ccu RST_BUS_MSGBOX2>;
+		reset-names = "rst0","rst1",
+			      "rst2";
+		local_id = <0>;
 		status = "disabled";
 	};
+
+	dsp: rproc@1700000 {
+        compatible = "allwinner,hifi4-rproc";
+        reg = <0x01700000 0x1000>;
+        reg-names = "dsp-cfg";
+
+        clocks = <&ccu CLK_DSP>,
+                <&ccu CLK_BUS_DSP_CFG>;
+        clock-names = "core", "bus";
+
+        assigned-clocks = <&ccu CLK_DSP>;
+        assigned-clock-parents = <&ccu CLK_PLL_PERIPH0_2X>;
+        assigned-clock-rates = <600000000>;
+
+        resets = <&ccu RST_DSP>,
+                <&ccu RST_BUS_DSP_CFG>,
+                <&ccu RST_BUS_DSP_DBG>;
+        reset-names = "core", "cfg", "dbg";
+
+        memory-region = <&dsp_sram_reserved &dsp_ddr_reserved &dsp_vring0 &dsp_vring1 &dsp_vdevbuf>;
+        firmware-name = "dsp.elf";
+        mboxes = <&msgbox 0>;
+        mbox-names = "arm-kick";
+        status = "disabled";
+    };
 };

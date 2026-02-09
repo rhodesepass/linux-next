@@ -36,13 +36,14 @@
 
 		ve: video-codec@1c0e000 {
 			compatible = "allwinner,sun20i-d1-video-engine";
-			reg = <0x1c0e000 0x2000>;
+			reg = <0x01c0e000 0x1000>;
 			interrupts = <SOC_PERIPHERAL_IRQ(66) IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&ccu CLK_BUS_VE>,
-				 <&ccu CLK_VE>,
-				 <&ccu CLK_MBUS_VE>;
+			clocks = <&ccu CLK_BUS_VE>, <&ccu CLK_VE>,
+				<&ccu CLK_MBUS_VE>;
 			clock-names = "ahb", "mod", "ram";
 			resets = <&ccu RST_BUS_VE>;
+			allwinner,sram = <&ve_sram 1>;
+			status = "disabled";
 		};
 
 		pio: pinctrl@2000000 {
@@ -511,6 +512,10 @@
 
 				reg_ldob: ldob {
 				};
+			};
+
+			ve_sram: sram {
+				compatible = "allwinner,sun4i-a10-sram-c1";
 			};
 		};
 
