@@ -100,7 +100,7 @@
 
 &{/soc} {
 	iommu: iommu@2010000 {
-		compatible = "allwinner,sunxi-iommu";
+		compatible = "allwinner,sun20i-d1-iommu";
 		reg = <0x02010000 0x1000>;
 		interrupts = <SOC_PERIPHERAL_IRQ(64) IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&ccu CLK_BUS_IOMMU>;
