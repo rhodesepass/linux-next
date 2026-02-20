@@ -493,7 +493,9 @@ struct sun8i_layer *sun8i_vi_layer_init_one(struct drm_device *drm,
 		format_count = ARRAY_SIZE(sun8i_vi_layer_formats);
 	}
 
-	if (!mixer->cfg->ui_num && index == 0)
+	// if (!mixer->cfg->ui_num && index == 0)
+	// 	type = DRM_PLANE_TYPE_PRIMARY;
+	if (index == 0)
 		type = DRM_PLANE_TYPE_PRIMARY;
 
 	/* possible crtcs are set later */
